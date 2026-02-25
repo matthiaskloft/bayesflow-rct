@@ -1,14 +1,17 @@
-# bayesflow-calibration: Add-on Package for Calibrated NPE Training
+# bayesflow-calibration-loss: Add-on Package for Calibrated NPE Training
+
+> **Status note (2026-02):** This document is a historical design plan for the early schedule-based prototype API.
+> The active implementation uses a Lagrangian dual-ascent API (`target_calibration_error`, `lr_lambda`, `lambda_max`, `start_epoch`, `normalization_burn_in`, `batch_size_calibration`) and should be treated as source of truth for current usage.
 
 ## Context
 
 **Problem**: BayesFlow 2.x trains normalizing flows via maximum likelihood (negative log-density). The resulting posteriors can be **miscalibrated** — credible intervals don't have the advertised coverage. Currently `rctbp_bf_training` only detects this post-training via `validation.py`.
 
-**Solution**: Implement the differentiable calibration loss from [Falkner et al. (NeurIPS 2023)](https://arxiv.org/abs/2310.13402) as a **standalone add-on package** (`bayesflow-calibration`) that plugs into BayesFlow's training loop. The loss penalizes coverage errors during training, producing well-calibrated posteriors by construction.
+**Solution**: Implement the differentiable calibration loss from [Falkner et al. (NeurIPS 2023)](https://arxiv.org/abs/2310.13402) as a **standalone add-on package** (`bayesflow-calibration-loss`) that plugs into BayesFlow's training loop. The loss penalizes coverage errors during training, producing well-calibrated posteriors by construction.
 
 **Why a separate package?**
 - Reusable across projects (not just rctbp_bf_training)
-- Clean dependency: `bayesflow-calibration` depends on `bayesflow>=2.0` + `keras>=3.0`
+- Clean dependency: `bayesflow-calibration-loss` depends on `bayesflow>=2.0` + `keras>=3.0`
 - `rctbp_bf_training` adds it as an optional dependency
 
 ---
@@ -39,11 +42,11 @@ def compute_metrics(self, ...):
 ## Package Structure
 
 ```
-bayesflow-calibration/
+bayesflow-calibration-loss/
 ├── pyproject.toml
 ├── README.md
 ├── src/
-│   └── bayesflow_calibration/
+│   └── bayesflow_calibration_loss/
 │       ├── __init__.py              # Public API exports
 │       ├── approximator.py          # CalibratedContinuousApproximator
 │       ├── losses.py                # calibration_loss, coverage_error, ste_indicator
@@ -294,18 +297,18 @@ This callback updates the epoch counter so the gamma schedule works.
 
 ## Integration with `rctbp_bf_training`
 
-In `rctbp_bf_training`, add `bayesflow-calibration` as optional dependency:
+In `rctbp_bf_training`, add `bayesflow-calibration-loss` as optional dependency:
 
 ```toml
 # pyproject.toml
 [project.optional-dependencies]
-calibration = ["bayesflow-calibration>=0.1"]
+calibration = ["bayesflow-calibration-loss>=0.1"]
 ```
 
 Usage in `create_optimization_objective()` or `train_until_threshold()`:
 
 ```python
-from bayesflow_calibration import CalibratedContinuousApproximator, GammaSchedule
+from bayesflow_calibration_loss import CalibratedContinuousApproximator, GammaSchedule
 
 # Instead of bf.BasicWorkflow(...), build approximator directly:
 approximator = CalibratedContinuousApproximator(
@@ -396,11 +399,11 @@ Recommended: `linear_warmup` with `warmup_epochs=20-50` so the network first lea
 
 | File | Lines | Description |
 |------|-------|-------------|
-| `src/bayesflow_calibration/__init__.py` | ~15 | Public API exports |
-| `src/bayesflow_calibration/losses.py` | ~120 | `ste_indicator`, `compute_ranks`, `coverage_error` |
-| `src/bayesflow_calibration/schedules.py` | ~80 | `GammaSchedule` dataclass |
-| `src/bayesflow_calibration/approximator.py` | ~200 | `CalibratedContinuousApproximator` |
-| `src/bayesflow_calibration/diagnostics.py` | ~50 | `CalibrationMonitorCallback` |
+| `src/bayesflow_calibration_loss/__init__.py` | ~15 | Public API exports |
+| `src/bayesflow_calibration_loss/losses.py` | ~120 | `ste_indicator`, `compute_ranks`, `coverage_error` |
+| `src/bayesflow_calibration_loss/schedules.py` | ~80 | `GammaSchedule` dataclass |
+| `src/bayesflow_calibration_loss/approximator.py` | ~200 | `CalibratedContinuousApproximator` |
+| `src/bayesflow_calibration_loss/diagnostics.py` | ~50 | `CalibrationMonitorCallback` |
 | `tests/test_losses.py` | ~100 | Loss function unit tests |
 | `tests/test_approximator.py` | ~80 | Integration tests |
 | `tests/test_schedules.py` | ~50 | Schedule tests |

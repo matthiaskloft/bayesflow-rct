@@ -48,7 +48,29 @@
       "Bash(gh pr create --title \"Refactor: split optimization.py into focused modules\" --body \"$\\(cat <<''EOF''\n## Summary\n- **Split 1,612-line `optimization.py`** into 4 focused modules \\(`objectives.py`, `results.py`, `threshold.py`, `dashboard.py`\\) while keeping `optimization.py` as the core Optuna orchestration with backward-compatible re-exports\n- **Fixed bug** in `validation.py` line 817: undefined `conditions_list` → `condition_grid`\n- **Added deprecation warning** to legacy `extract_calibration_metrics\\(\\)` pointing to `run_validation_pipeline\\(\\)`\n- **Cleaned up `diagnostics.py`**: removed dead duplicate `plot_coverage_diff`, extracted `_create_condition_grid\\(\\)` and `_hide_empty_subplots\\(\\)` helpers to DRY up 5 grid-plot functions\n\n## Module breakdown\n\n| Module | LOC | Responsibility |\n|--------|-----|----------------|\n| `objectives.py` | ~240 | Parameter counting, normalization, objective computation |\n| `results.py` | ~330 | Optuna trial analysis, Pareto front, visualization |\n| `threshold.py` | ~280 | Threshold-based training loop \\(Optuna-independent\\) |\n| `dashboard.py` | ~120 | Optuna Dashboard CLI launcher |\n| `optimization.py` | ~690 | Core Optuna study creation, hyperparameter sampling, objective factory |\n\n## Backward compatibility\nAll existing imports continue to work:\n```python\n# This still works — optimization.py re-exports everything\nfrom rctbp_bf_training.core.optimization import get_pareto_trials\n```\n\n## Test plan\n- [x] `pytest tests/` passes \\(1 test\\)\n- [x] `ruff check` — no new issues \\(only pre-existing UP035/UP006 patterns\\)\n- [x] Package import test validates module loading\n\n🤖 Generated with [Claude Code]\\(https://claude.com/claude-code\\)\nEOF\n\\)\")",
       "Bash(git checkout:*)",
       "Bash(\"/c/Users/Matze/Documents/GitHub/rctbp_bf_training/venv-py312/Scripts/pytest.exe\" tests/ -v --tb=short)",
-      "Bash(gh pr create:*)"
+      "Bash(gh pr create:*)",
+      "Bash(venv-py311/Scripts/jupyter.exe nbconvert --version)",
+      "Bash(venv-py311/Scripts/python.exe -m nbconvert --version)",
+      "Bash(venv-py311/Scripts/python.exe -c \"import bayesflow_calibration_loss; print\\(bayesflow_calibration_loss.__file__\\)\")",
+      "Bash(venv-py311/Scripts/python.exe -m pip install -e \".\" -q)",
+      "Bash(venv-py311/Scripts/python.exe -m pip install -e \"/c/Users/Matze/Documents/GitHub/bfcalloss\" -q)",
+      "Bash(venv-py311/Scripts/python.exe -m pip install nbconvert -q)",
+      "Bash(venv-py311/Scripts/python.exe -c \"import bayesflow_calibration_loss; print\\(''bayesflow-calibration-loss OK:'', bayesflow_calibration_loss.__file__\\)\")",
+      "Bash(venv-py311/Scripts/python.exe -c \"import rctbp_bf_training; print\\(''package OK''\\)\")",
+      "Bash(venv-py311/Scripts/python.exe -m pip show keras)",
+      "Bash(KERAS_BACKEND=torch venv-py311/Scripts/python.exe -c \"import bayesflow_calibration_loss; print\\(''bayesflow-calibration-loss OK:'', bayesflow_calibration_loss.__file__\\)\")",
+      "Bash(KERAS_BACKEND=torch venv-py311/Scripts/python.exe -m nbconvert --version)",
+      "Bash(KERAS_BACKEND=torch venv-py311/Scripts/python.exe -m nbconvert --to notebook --execute --ExecutePreprocessor.timeout=600 --output ancova_calibration_loss_development_executed.ipynb ancova_calibration_loss_development.ipynb)",
+      "Bash(KERAS_BACKEND=torch venv-py311/Scripts/python.exe -m nbconvert --to notebook --execute --ExecutePreprocessor.timeout=600 --output examples/ancova_calibration_loss_development_executed.ipynb examples/ancova_calibration_loss_development.ipynb)",
+      "Bash(KERAS_BACKEND=torch venv-py311/Scripts/python.exe -c \":*)",
+      "Bash(KERAS_BACKEND=torch venv-py311/Scripts/python.exe -m nbconvert --to notebook --execute --ExecutePreprocessor.timeout=1200 --output examples/ancova_calibration_loss_development_executed.ipynb examples/ancova_calibration_loss_development.ipynb)",
+      "WebFetch(domain:discuss.bayesflow.org)",
+      "WebFetch(domain:bpspsychub.onlinelibrary.wiley.com)",
+      "WebFetch(domain:arxiv.org)",
+      "WebFetch(domain:openreview.net)",
+      "WebFetch(domain:github.com)",
+      "WebFetch(domain:bayesflow.org)",
+      "WebFetch(domain:raw.githubusercontent.com)"
     ]
   }
 }

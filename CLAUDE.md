@@ -110,7 +110,7 @@ rctbp_bf_training/
 - **Generic core + model-specific implementations**: `core/` is model-agnostic; `models/ancova/` contains ANCOVA-specific code
 - **Configuration via dataclasses**: All configs use typed dataclasses with defaults
 - **Multi-objective optimization**: Optuna studies optimize (calibration_error, param_count) on a Pareto front
-- **External calibration loss**: `bayesflow-calibration` ([bfcalloss](https://github.com/matthiaskloft/bfcalloss)) is a separate repo, installed via `pip install -e ".[calibration]"`
+- **External calibration loss**: `bayesflow-calibration-loss` ([bayesflow-calibration-loss](https://github.com/matthiaskloft/bayesflow-calibration-loss)) is a separate repo, installed via `pip install -e ".[calibration]"`
 
 ### Conventions
 - Type hints throughout (enforced by mypy)

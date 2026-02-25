@@ -1,0 +1,103 @@
+variant,ok,error,grid_eval_error,use_calibration,gamma_max,normalize_loss,ema_momentum,calibration_mode,schedule_kind,start_epoch,end_epoch,n_post_samples,subsample_size,seed,final_train_loss,final_val_loss,final_calibration_loss,final_calibration_ema,final_gamma,final_effective_gamma,nrmse,cal_error,contraction,grid_mean_cal_error,grid_overall_nrmse,grid_coverage_90,grid_coverage_95
+baseline,True,,,False,0.0,,,,baseline,,,,,2026,-3.165281295776367,-4.187742233276367,,,,,0.5628653965840782,0.14942105263157895,0.0,0.1608125,5.470330430202527,1.0,1.0
+cosine_g0.1_m0_post200_full,False,"OutOfMemoryError: Exception encountered when calling Dropout.call().
+
+[1mCUDA out of memory. Tried to allocate 24.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 20.06 GiB is allocated by PyTorch, and 561.62 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Dropout.call():
+  • inputs=torch.Tensor(shape=torch.Size([256, 707, 32]), dtype=float32)
+  • training=True",,True,0.1,True,0.99,0.0,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g0.1_m0.5_post200_full,False,"OutOfMemoryError: Exception encountered when calling Dense.call().
+
+[1mCUDA out of memory. Tried to allocate 26.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 19.44 GiB is allocated by PyTorch, and 1.17 GiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Dense.call():
+  • inputs=torch.Tensor(shape=torch.Size([256, 200, 128]), dtype=float32)
+  • training=False",,True,0.1,True,0.99,0.5,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g0.1_m1_post200_full,False,"OutOfMemoryError: Exception encountered when calling Activation.call().
+
+[1mCUDA out of memory. Tried to allocate 26.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 19.85 GiB is allocated by PyTorch, and 783.84 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Activation.call():
+  • inputs=torch.Tensor(shape=torch.Size([51200, 128]), dtype=float32)",,True,0.1,True,0.99,1.0,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g0.5_m0_post200_full,False,"OutOfMemoryError: Exception encountered when calling Activation.call().
+
+[1mCUDA out of memory. Tried to allocate 26.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 20.03 GiB is allocated by PyTorch, and 600.12 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Activation.call():
+  • inputs=torch.Tensor(shape=torch.Size([256, 200, 128]), dtype=float32)",,True,0.5,True,0.99,0.0,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g0.5_m0.5_post200_full,False,"OutOfMemoryError: Exception encountered when calling Residual.call().
+
+[1mCUDA out of memory. Tried to allocate 24.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 19.99 GiB is allocated by PyTorch, and 639.75 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Residual.call():
+  • x=torch.Tensor(shape=torch.Size([256, 707, 64]), dtype=float32)
+  • training=True
+  • mask=None",,True,0.5,True,0.99,0.5,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g0.5_m1_post200_full,False,"OutOfMemoryError: Exception encountered when calling Activation.call().
+
+[1mCUDA out of memory. Tried to allocate 24.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 20.33 GiB is allocated by PyTorch, and 286.60 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Activation.call():
+  • inputs=torch.Tensor(shape=torch.Size([256, 737, 32]), dtype=float32)",,True,0.5,True,0.99,1.0,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g1_m0_post200_full,False,"OutOfMemoryError: Exception encountered when calling Dense.call().
+
+[1mCUDA out of memory. Tried to allocate 26.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 20.46 GiB is allocated by PyTorch, and 143.91 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Dense.call():
+  • inputs=torch.Tensor(shape=torch.Size([256, 200, 128]), dtype=float32)
+  • training=False",,True,1.0,True,0.99,0.0,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g1_m0.5_post200_full,False,"OutOfMemoryError: Exception encountered when calling Activation.call().
+
+[1mCUDA out of memory. Tried to allocate 26.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 20.16 GiB is allocated by PyTorch, and 457.68 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Activation.call():
+  • inputs=torch.Tensor(shape=torch.Size([256, 200, 128]), dtype=float32)",,True,1.0,True,0.99,0.5,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g1_m1_post200_full,False,"OutOfMemoryError: Exception encountered when calling Dense.call().
+
+[1mCUDA out of memory. Tried to allocate 26.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 20.22 GiB is allocated by PyTorch, and 389.81 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Dense.call():
+  • inputs=torch.Tensor(shape=torch.Size([256, 200, 128]), dtype=float32)
+  • training=False",,True,1.0,True,0.99,1.0,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g2_m0_post200_full,False,"OutOfMemoryError: Exception encountered when calling Dense.call().
+
+[1mCUDA out of memory. Tried to allocate 26.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 20.18 GiB is allocated by PyTorch, and 439.61 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Dense.call():
+  • inputs=torch.Tensor(shape=torch.Size([51200, 128]), dtype=float32)
+  • training=False",,True,2.0,True,0.99,0.0,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g2_m0.5_post200_full,False,"OutOfMemoryError: Exception encountered when calling Activation.call().
+
+[1mCUDA out of memory. Tried to allocate 26.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 20.19 GiB is allocated by PyTorch, and 428.11 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Activation.call():
+  • inputs=torch.Tensor(shape=torch.Size([51200, 128]), dtype=float32)",,True,2.0,True,0.99,0.5,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g2_m1_post200_full,False,"OutOfMemoryError: Exception encountered when calling Residual.call().
+
+[1mCUDA out of memory. Tried to allocate 32.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 20.48 GiB is allocated by PyTorch, and 127.69 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Residual.call():
+  • x=torch.Tensor(shape=torch.Size([256, 994, 32]), dtype=float32)
+  • training=True
+  • mask=None",,True,2.0,True,0.99,1.0,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g10_m0_post200_full,False,"OutOfMemoryError: Exception encountered when calling Activation.call().
+
+[1mCUDA out of memory. Tried to allocate 26.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 20.24 GiB is allocated by PyTorch, and 382.49 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Activation.call():
+  • inputs=torch.Tensor(shape=torch.Size([256, 200, 128]), dtype=float32)",,True,10.0,True,0.99,0.0,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g10_m0.5_post200_full,False,"OutOfMemoryError: Exception encountered when calling Dense.call().
+
+[1mCUDA out of memory. Tried to allocate 26.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 19.91 GiB is allocated by PyTorch, and 724.88 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Dense.call():
+  • inputs=torch.Tensor(shape=torch.Size([51200, 128]), dtype=float32)
+  • training=False",,True,10.0,True,0.99,0.5,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
+cosine_g10_m1_post200_full,False,"OutOfMemoryError: Exception encountered when calling Dense.call().
+
+[1mCUDA out of memory. Tried to allocate 32.00 MiB. GPU 0 has a total capacity of 6.00 GiB of which 0 bytes is free. Of the allocated memory 19.92 GiB is allocated by PyTorch, and 697.30 MiB is reserved by PyTorch but unallocated. If reserved but unallocated memory is large try setting PYTORCH_CUDA_ALLOC_CONF=expandable_segments:True to avoid fragmentation.  See documentation for Memory Management  (https://pytorch.org/docs/stable/notes/cuda.html#environment-variables)[0m
+
+Arguments received by Dense.call():
+  • inputs=torch.Tensor(shape=torch.Size([256, 967, 3]), dtype=float32)
+  • training=True",,True,10.0,True,0.99,1.0,windowed_cosine,10.0,15.0,200.0,,2026,,,,,,,,,,,,,
