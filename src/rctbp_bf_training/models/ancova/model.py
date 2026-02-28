@@ -62,16 +62,29 @@ class MetaConfig:
     prior_scale_gamma_scale: float = 1.0
 
 
+def _default_ancova_workflow() -> WorkflowConfig:
+    """Default WorkflowConfig for ANCOVA: FlowMatching inference network."""
+    return WorkflowConfig(
+        inference_network=InferenceNetworkConfig(
+            network_type="FlowMatching",
+            widths=(256, 256, 256),
+            dropout=0.05,
+        )
+    )
+
+
 @dataclass
 class ANCOVAConfig:
     """
     Complete configuration bundle for ANCOVA 2-arms model.
 
     This wraps the generic WorkflowConfig with ANCOVA-specific configurations.
+    The default inference network is FlowMatching; use
+    ``InferenceNetworkConfig(network_type="CouplingFlow")`` to switch back.
     """
     prior: PriorConfig = field(default_factory=PriorConfig)
     meta: MetaConfig = field(default_factory=MetaConfig)
-    workflow: WorkflowConfig = field(default_factory=WorkflowConfig)
+    workflow: WorkflowConfig = field(default_factory=_default_ancova_workflow)
 
     def to_dict(self) -> dict:
         """Serialize all configs to nested dict for JSON storage."""
