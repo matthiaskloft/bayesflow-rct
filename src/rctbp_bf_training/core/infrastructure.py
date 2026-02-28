@@ -58,27 +58,40 @@ class SummaryNetworkConfig:
 @dataclass
 class InferenceNetworkConfig:
     """
-    Configuration for inference network (e.g., Normalizing Flow).
+    Configuration for inference network (normalizing flow or flow matching).
 
     The inference network learns the posterior distribution conditioned on
     the summary representation and context variables.
 
     Attributes
     ----------
-    depth : int
-        Number of coupling layers in the flow (default: 7).
-    hidden_sizes : tuple
-        Hidden layer sizes for coupling subnets (default: (128, 128)).
-    dropout : float
-        Dropout rate for regularization (default: 0.20).
     network_type : str
         Type of inference network architecture (default: "CouplingFlow").
-        Future options: "MAF", "NSF", etc.
+        Options: "CouplingFlow", "FlowMatching".
+    depth : int
+        Number of coupling layers (CouplingFlow only, default: 7).
+    hidden_sizes : tuple
+        Hidden layer sizes for coupling subnets (CouplingFlow only,
+        default: (128, 128)).
+    widths : tuple
+        Hidden layer widths for the TimeMLP subnet (FlowMatching only,
+        default: (256, 256, 256)).
+    dropout : float
+        Dropout rate for regularization (default: 0.05).
+    use_optimal_transport : bool
+        Use mini-batch optimal transport during FlowMatching training
+        (FlowMatching only, default: False). Improves sample quality at
+        ~2.5x training cost.
     """
+    network_type: str = "CouplingFlow"
+    # CouplingFlow-specific
     depth: int = 7
     hidden_sizes: Tuple[int, ...] = (128, 128)
-    dropout: float = 0.20
-    network_type: str = "CouplingFlow"
+    # FlowMatching-specific
+    widths: Tuple[int, ...] = (256, 256, 256)
+    use_optimal_transport: bool = False
+    # Shared
+    dropout: float = 0.05
 
 
 @dataclass
@@ -328,7 +341,7 @@ def build_inference_network(config: InferenceNetworkConfig):
 
     Returns
     -------
-    Inference network (e.g., bf.networks.CouplingFlow)
+    Inference network (e.g., bf.networks.CouplingFlow or bf.networks.FlowMatching)
 
     Raises
     ------
@@ -338,13 +351,24 @@ def build_inference_network(config: InferenceNetworkConfig):
     Examples
     --------
     >>> config = InferenceNetworkConfig(depth=7, hidden_sizes=(128, 128))
-    >>> inference_net = build_inference_network(config)
+    >>> coupling_net = build_inference_network(config)
+
+    >>> config = InferenceNetworkConfig(network_type="FlowMatching", widths=(256, 256, 256))
+    >>> flow_net = build_inference_network(config)
     """
     if config.network_type == "CouplingFlow":
         return bf.networks.CouplingFlow(
             depth=config.depth,
             subnet_kwargs=dict(
                 hidden_sizes=list(config.hidden_sizes),
+                dropout=config.dropout,
+            ),
+        )
+    elif config.network_type == "FlowMatching":
+        return bf.networks.FlowMatching(
+            use_optimal_transport=config.use_optimal_transport,
+            subnet_kwargs=dict(
+                widths=list(config.widths),
                 dropout=config.dropout,
             ),
         )
@@ -609,8 +633,19 @@ def params_dict_to_workflow_config(params: dict) -> WorkflowConfig:
     ----------
     params : dict
         Flat dictionary of hyperparameters (typically from Optuna trial).
-        Expected keys: summary_dim, deepset_depth, deepset_width, deepset_dropout,
-                      flow_depth, flow_hidden, flow_dropout, initial_lr, batch_size, etc.
+
+        Common keys (all network types):
+            summary_dim, deepset_depth, deepset_width, deepset_dropout,
+            flow_depth, flow_dropout, initial_lr, batch_size, etc.
+
+        CouplingFlow-specific:
+            flow_hidden : int — hidden layer size for coupling subnets (default: 128).
+
+        FlowMatching-specific:
+            flow_width : int — hidden layer width for TimeMLP (default: 256).
+            use_optimal_transport : bool — enable OT matching (default: False).
+
+        network_type : str — "CouplingFlow" (default) or "FlowMatching".
 
     Returns
     -------
@@ -619,15 +654,33 @@ def params_dict_to_workflow_config(params: dict) -> WorkflowConfig:
 
     Examples
     --------
-    >>> params = {
-    ...     "summary_dim": 12,
-    ...     "deepset_depth": 4,
-    ...     "flow_depth": 8,
-    ...     "flow_hidden": 256,
-    ...     "initial_lr": 1e-3,
-    ... }
+    >>> params = {"summary_dim": 12, "flow_depth": 8, "flow_hidden": 256, "initial_lr": 1e-3}
+    >>> config = params_dict_to_workflow_config(params)
+
+    >>> params = {"network_type": "FlowMatching", "flow_depth": 3, "flow_width": 256}
     >>> config = params_dict_to_workflow_config(params)
     """
+    network_type = params.get("network_type", "CouplingFlow")
+    flow_depth = int(params.get("flow_depth", 7))
+    flow_dropout = float(params.get("flow_dropout", 0.05))
+
+    if network_type == "FlowMatching":
+        flow_width = int(params.get("flow_width", 256))
+        inference_config = InferenceNetworkConfig(
+            network_type="FlowMatching",
+            widths=(flow_width,) * flow_depth,
+            dropout=flow_dropout,
+            use_optimal_transport=bool(params.get("use_optimal_transport", False)),
+        )
+    else:
+        flow_hidden = int(params.get("flow_hidden", 128))
+        inference_config = InferenceNetworkConfig(
+            network_type="CouplingFlow",
+            depth=flow_depth,
+            hidden_sizes=(flow_hidden,) * 2,
+            dropout=flow_dropout,
+        )
+
     return WorkflowConfig(
         summary_network=SummaryNetworkConfig(
             summary_dim=int(params.get("summary_dim", 10)),
@@ -635,11 +688,7 @@ def params_dict_to_workflow_config(params: dict) -> WorkflowConfig:
             width=int(params.get("deepset_width", 64)),
             dropout=float(params.get("deepset_dropout", 0.05)),
         ),
-        inference_network=InferenceNetworkConfig(
-            depth=int(params.get("flow_depth", 7)),
-            hidden_sizes=(int(params.get("flow_hidden", 128)),) * 2,
-            dropout=float(params.get("flow_dropout", 0.20)),
-        ),
+        inference_network=inference_config,
         training=TrainingConfig(
             initial_lr=float(params.get("initial_lr", 7e-4)),
             batch_size=int(params.get("batch_size", 320)),
