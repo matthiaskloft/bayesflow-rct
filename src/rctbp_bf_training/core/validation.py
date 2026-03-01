@@ -334,22 +334,32 @@ def compute_batch_metrics(
     errors = posterior_mean - true_value
     
     # Coverage at ALL levels (1-99%) for full coverage profile
+    # Vectorized: compute all quantiles in a single pass (one sort instead
+    # of 198 separate np.percentile calls)
+    alphas = np.array([1 - level for level in full_coverage_levels])
+    lower_quantiles = alphas / 2          # shape (n_levels,)
+    upper_quantiles = 1 - alphas / 2      # shape (n_levels,)
+    all_quantiles = np.concatenate([lower_quantiles, upper_quantiles])
+
+    # Single vectorized call: shape (2*n_levels, n_sims)
+    all_bounds = np.quantile(draws, all_quantiles, axis=1)
+    n_levels = len(full_coverage_levels)
+    lower_bounds_all = all_bounds[:n_levels]   # (n_levels, n_sims)
+    upper_bounds_all = all_bounds[n_levels:]   # (n_levels, n_sims)
+
+    coverage_levels_set = set(coverage_levels)
     coverage_results = {}
-    for level in full_coverage_levels:
-        alpha = 1 - level
-        lower_q = alpha / 2 * 100
-        upper_q = (1 - alpha / 2) * 100
-        
-        lower_bounds = np.percentile(draws, lower_q, axis=1)
-        upper_bounds = np.percentile(draws, upper_q, axis=1)
-        covered = (true_value >= lower_bounds) & (true_value <= upper_bounds)
-        
+    for i, level in enumerate(full_coverage_levels):
+        covered = (
+            (true_value >= lower_bounds_all[i])
+            & (true_value <= upper_bounds_all[i])
+        )
         level_int = int(level * 100)
         coverage_results[f"covered_{level_int}"] = covered
         # Only store CI bounds for the report levels (to save memory)
-        if level in coverage_levels:
-            coverage_results[f"ci_lower_{level_int}"] = lower_bounds
-            coverage_results[f"ci_upper_{level_int}"] = upper_bounds
+        if level in coverage_levels_set:
+            coverage_results[f"ci_lower_{level_int}"] = lower_bounds_all[i]
+            coverage_results[f"ci_upper_{level_int}"] = upper_bounds_all[i]
     
     # Build DataFrame for this batch
     batch_metrics = pd.DataFrame({

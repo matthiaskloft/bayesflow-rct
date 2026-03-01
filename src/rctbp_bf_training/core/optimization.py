@@ -58,6 +58,7 @@ except ImportError:
 from rctbp_bf_training.core.objectives import (  # noqa: I001
     FAILED_TRIAL_CAL_ERROR,
     FAILED_TRIAL_PARAM_SCORE,
+    estimate_param_count,
     extract_objective_values,
     get_param_count,
 )
@@ -113,7 +114,7 @@ def create_study(
         sampler = optuna.samplers.TPESampler(
             seed=42,
             multivariate=True,
-            n_startup_trials=10,
+            n_startup_trials=20,
         )
 
     # Default pruner (median-based)
@@ -530,6 +531,9 @@ def create_optimization_objective(
         params_dict_to_workflow_config,
         build_summary_network,
         build_inference_network,
+        configure_training_performance,
+        compile_approximator,
+        generate_validation_data,
     )
     from rctbp_bf_training.core.validation import (
         run_validation_pipeline,
@@ -541,6 +545,16 @@ def create_optimization_objective(
     if rng is None:
         rng = np.random.default_rng()
 
+    # Pre-generate validation data once for all trials.
+    # Each of the n_sims samples gets its own independently drawn
+    # meta-parameters (N, p_alloc, prior_df, etc.), producing
+    # multiple conditions at batch_size=1 per condition.
+    # This eliminates redundant re-simulation every epoch and
+    # stabilizes validation loss curves across trials.
+    cached_validation_data = generate_validation_data(
+        simulator, config.workflow.training.validation_sims
+    )
+
     def objective(trial: "Trial") -> Tuple[float, float]:
         """Optuna objective: returns (calibration_error, param_count)."""
         import keras as _keras
@@ -548,8 +562,31 @@ def create_optimization_objective(
         # Sample hyperparameters
         params = sample_hyperparameters(trial, search_space)
 
+        # Pre-filter: skip configurations that are obviously too large
+        # (avoids wasting minutes training oversized models)
+        estimated_params = estimate_param_count(
+            summary_dim=params.get("summary_dim", 10),
+            deepset_width=params.get("deepset_width", 64),
+            deepset_depth=params.get("deepset_depth", 3),
+            flow_depth=params.get("flow_depth", 7),
+            flow_hidden=params.get("flow_hidden", 128),
+            n_conditions=len(inference_conditions),
+            n_params=1,
+        )
+        max_params = 2_000_000  # 2M parameter budget
+        if estimated_params > max_params:
+            print(
+                f"Trial {trial.number}: estimated {estimated_params:,} "
+                f"params exceeds {max_params:,} budget, skipping."
+            )
+            return FAILED_TRIAL_CAL_ERROR, FAILED_TRIAL_PARAM_SCORE
+
         # Convert to WorkflowConfig and build networks
         workflow_config = params_dict_to_workflow_config(params)
+
+        # Apply performance optimizations (mixed precision, etc.)
+        configure_training_performance(config.workflow.training)
+
         summary_net = build_summary_network(
             workflow_config.summary_network
         )
@@ -558,7 +595,9 @@ def create_optimization_objective(
         )
 
         # Setup learning rate schedule
-        steps_per_epoch = params["batch_size"] * 100
+        # Use actual batches_per_epoch so decay rate is consistent
+        # regardless of batch_size
+        steps_per_epoch = config.workflow.training.batches_per_epoch
         lr_schedule = _keras.optimizers.schedules.ExponentialDecay(
             initial_learning_rate=params["initial_lr"],
             decay_steps=steps_per_epoch,
@@ -583,6 +622,11 @@ def create_optimization_objective(
         except Exception:
             pass
 
+        # Apply torch.compile() if enabled (PyTorch 2.x graph optimization)
+        wf.approximator = compile_approximator(
+            wf.approximator, config.workflow.training
+        )
+
         early_stop = MovingAverageEarlyStopping(
             window=params["window"],
             patience=params["patience"],
@@ -597,10 +641,11 @@ def create_optimization_objective(
                 num_batches_per_epoch=(
                     config.workflow.training.batches_per_epoch
                 ),
-                validation_data=(
-                    config.workflow.training.validation_sims
-                ),
-                callbacks=[early_stop],
+                validation_data=cached_validation_data,
+                callbacks=[
+                    early_stop,
+                    OptunaReportCallback(trial),
+                ],
             )
         except Exception as e:
             print(f"Trial {trial.number} FAILED: {e}")

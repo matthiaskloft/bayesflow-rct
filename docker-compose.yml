@@ -43,6 +43,9 @@ services:
     # Working directory
     working_dir: /app
 
+    # Shared memory for PyTorch multiprocessing data loading
+    shm_size: '2g'
+
     # Resource limits (adjust based on Fluence node capabilities)
     # Uncomment and adjust as needed:
     # mem_limit: 16g

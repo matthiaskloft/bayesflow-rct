@@ -116,7 +116,13 @@ class TrainingConfig:
     early_stopping_patience : int
         Patience for early stopping callback (default: 10).
     early_stopping_window : int
-        Window size for moving average (default: 10).
+        Window size for moving average (default: 5).
+    use_mixed_precision : bool
+        Enable mixed-precision training (float16 on GPU). Gives ~1.5-2x
+        speedup on Ampere+ GPUs with Tensor Cores (default: False).
+    use_torch_compile : bool
+        Compile the model with ``torch.compile()`` for fused operations.
+        Gives ~10-30% speedup on PyTorch 2.x (default: False).
     """
     initial_lr: float = 7e-4
     decay_rate: float = 0.85
@@ -125,7 +131,9 @@ class TrainingConfig:
     batches_per_epoch: int = 50
     validation_sims: int = 1000
     early_stopping_patience: int = 10
-    early_stopping_window: int = 10
+    early_stopping_window: int = 5
+    use_mixed_precision: bool = False
+    use_torch_compile: bool = False
 
 
 @dataclass
@@ -618,6 +626,145 @@ def load_workflow_with_metadata(path: str | Path) -> Tuple:
 
 
 # =============================================================================
+# Performance Configuration
+# =============================================================================
+
+def configure_training_performance(config: TrainingConfig) -> None:
+    """
+    Apply performance optimizations based on TrainingConfig flags.
+
+    Should be called once before building networks. Enables:
+    - Mixed-precision training (float16 compute on GPU)
+    - torch.compile() graph optimization
+
+    Parameters
+    ----------
+    config : TrainingConfig
+        Training configuration with performance flags.
+
+    Notes
+    -----
+    Mixed precision uses Keras global policy, so it must be set before
+    building any layers. ``torch.compile()`` is applied to the approximator
+    after workflow creation via :func:`compile_approximator`.
+
+    Examples
+    --------
+    >>> config = TrainingConfig(use_mixed_precision=True)
+    >>> configure_training_performance(config)
+    """
+    if config.use_mixed_precision:
+        import keras
+        try:
+            import torch
+            has_cuda = torch.cuda.is_available()
+        except ImportError:
+            has_cuda = False
+
+        if has_cuda:
+            keras.mixed_precision.set_global_policy("mixed_float16")
+        else:
+            import warnings
+            warnings.warn(
+                "Mixed precision requested but no CUDA GPU detected. "
+                "Skipping — mixed_float16 requires GPU with Tensor Cores.",
+                stacklevel=2,
+            )
+
+
+def compile_approximator(approximator: "bf.approximators.Approximator",
+                         config: TrainingConfig) -> "bf.approximators.Approximator":
+    """
+    Optionally apply ``torch.compile()`` to the approximator.
+
+    Parameters
+    ----------
+    approximator : bf.approximators.Approximator
+        Built (but not yet trained) BayesFlow approximator.
+    config : TrainingConfig
+        Training configuration with performance flags.
+
+    Returns
+    -------
+    bf.approximators.Approximator
+        The same approximator, possibly compiled.
+
+    Notes
+    -----
+    Requires PyTorch >= 2.0. Falls back gracefully if ``torch.compile``
+    is unavailable or fails (e.g., unsupported ops).
+
+    Examples
+    --------
+    >>> approximator = compile_approximator(approximator, config)
+    """
+    if not config.use_torch_compile:
+        return approximator
+
+    try:
+        import torch
+        if hasattr(torch, "compile"):
+            approximator = torch.compile(
+                approximator, mode="reduce-overhead"
+            )
+        else:
+            import warnings
+            warnings.warn(
+                "torch.compile requested but PyTorch < 2.0 detected. "
+                "Skipping compilation.",
+                stacklevel=2,
+            )
+    except Exception as e:
+        import warnings
+        warnings.warn(
+            f"torch.compile failed, falling back to eager mode: {e}",
+            stacklevel=2,
+        )
+
+    return approximator
+
+
+def generate_validation_data(
+    simulator: "bf.simulators.Simulator",
+    n_sims: int,
+) -> dict:
+    """
+    Pre-generate a fixed validation dataset for reuse across epochs.
+
+    Generates ``n_sims`` samples from the simulator, each with its own
+    independently drawn meta-parameters (conditions). This produces
+    multiple conditions with batch size 1 per condition, ensuring the
+    validation set spans the full prior/condition space.
+
+    Parameters
+    ----------
+    simulator : bf.simulators.Simulator
+        BayesFlow simulator to sample from.
+    n_sims : int
+        Number of validation samples to generate.
+
+    Returns
+    -------
+    dict
+        Raw simulator output (before adapter). Can be passed directly
+        to ``wf.fit_online(validation_data=...)``.
+
+    Notes
+    -----
+    Passing pre-generated data to ``fit_online`` avoids regenerating
+    validation simulations every epoch. With 200 epochs × 1000 sims,
+    this eliminates ~200,000 redundant simulations and stabilizes
+    the validation loss curve (no noise from different draws).
+
+    Examples
+    --------
+    >>> val_data = generate_validation_data(simulator, n_sims=1000)
+    >>> wf.fit_online(validation_data=val_data, ...)
+    """
+    return simulator.sample(n_sims)
+
+
+# =============================================================================
 # Hyperparameter Conversion for Bayesian Optimization
 # =============================================================================
 
@@ -697,6 +844,6 @@ def params_dict_to_workflow_config(params: dict) -> WorkflowConfig:
             batches_per_epoch=int(params.get("batches_per_epoch", 50)),
             validation_sims=int(params.get("validation_sims", 1000)),
             early_stopping_patience=int(params.get("early_stopping_patience", 10)),
-            early_stopping_window=int(params.get("early_stopping_window", 10)),
+            early_stopping_window=int(params.get("early_stopping_window", 5)),
         ),
     )
