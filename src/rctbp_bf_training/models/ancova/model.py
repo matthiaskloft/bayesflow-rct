@@ -67,8 +67,9 @@ def _default_ancova_workflow() -> WorkflowConfig:
     return WorkflowConfig(
         inference_network=InferenceNetworkConfig(
             network_type="FlowMatching",
-            widths=(256, 256, 256),
+            widths=(125, 125, 125),
             dropout=0.05,
+            use_optimal_transport=True,
         )
     )
 
@@ -316,7 +317,8 @@ def get_ancova_adapter_spec() -> AdapterSpec:
         set_keys=["outcome", "covariate", "group"],
         param_keys=["b_group"],
         context_keys=["N", "p_alloc", "prior_df", "prior_scale"],
-        standardize_keys=["outcome", "covariate", "b_group"],
+        standardize_keys=["outcome", "covariate"],
+        prior_standardize={"b_group": (None, "prior_scale")},
         broadcast_specs={
             "N": "outcome",
             "p_alloc": "outcome",

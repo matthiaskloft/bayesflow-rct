@@ -20,6 +20,139 @@ import json
 
 import numpy as np
 import bayesflow as bf
+from bayesflow.adapters.transforms.transform import Transform
+
+from bayesflow.utils.serialization import serializable, serialize
+
+
+# =============================================================================
+# Per-Sample Prior Standardization Transform
+# =============================================================================
+
+
+@serializable("rctbp_bf_training.core")
+class PriorStandardize(Transform):
+    """
+    Standardize an inference variable by its per-sample prior location and scale.
+
+    Forward:  ``z = (param - loc) / scale``
+    Inverse:  ``param = z * scale + loc``
+
+    Because the adapter inverse only receives ``inference_variables``
+    (the loc/scale keys are no longer present), the transform **caches**
+    the values seen in the most recent forward call and reuses them in
+    the inverse.
+
+    Parameters
+    ----------
+    param_key : str
+        Data-dict key for the parameter to standardize (e.g. ``"b_group"``).
+    scale_key : str
+        Data-dict key whose value is the prior scale (e.g.
+        ``"prior_scale"``).
+    loc_key : str or None
+        Data-dict key whose value is the prior location (e.g.
+        ``"prior_loc"``).  If ``None``, location is assumed to be 0.
+
+    Notes
+    -----
+    The caching strategy is safe for the standard BayesFlow inference loop
+    where ``adapter.forward(conditions)`` is always called before
+    ``adapter.inverse(samples)`` on the same thread.
+    """
+
+    def __init__(
+        self,
+        param_key: str,
+        scale_key: str,
+        loc_key: Optional[str] = None,
+    ):
+        super().__init__()
+        self.param_key = param_key
+        self.scale_key = scale_key
+        self.loc_key = loc_key
+        self._cached_scales: Optional[np.ndarray] = None
+        self._cached_locs: Optional[np.ndarray] = None
+
+    def get_config(self) -> dict:
+        return serialize({
+            "param_key": self.param_key,
+            "scale_key": self.scale_key,
+            "loc_key": self.loc_key,
+        })
+
+    def extra_repr(self) -> str:
+        parts = f"param={self.param_key!r}, scale={self.scale_key!r}"
+        if self.loc_key is not None:
+            parts += f", loc={self.loc_key!r}"
+        return parts
+
+    # ----- helpers -----------------------------------------------------------
+
+    @staticmethod
+    def _broadcast_to(arr: np.ndarray, target: np.ndarray) -> np.ndarray:
+        """Expand trailing dims of *arr* so it broadcasts with *target*."""
+        while arr.ndim < target.ndim:
+            arr = arr[..., np.newaxis]
+        return arr
+
+    def _resolve(
+        self,
+        data: dict[str, np.ndarray],
+        key: Optional[str],
+        cache: Optional[np.ndarray],
+        default: float,
+    ) -> Optional[np.ndarray]:
+        """Return live value > cached value > scalar default."""
+        if key is not None and key in data:
+            return np.asarray(data[key])
+        if cache is not None:
+            return cache
+        return np.asarray(default)
+
+    # ----- forward / inverse -------------------------------------------------
+
+    def forward(self, data: dict[str, np.ndarray], **kwargs) -> dict[str, np.ndarray]:
+        data = data.copy()
+
+        # Cache scale
+        if self.scale_key in data:
+            self._cached_scales = np.array(data[self.scale_key], copy=True)
+
+        # Cache location
+        if self.loc_key is not None and self.loc_key in data:
+            self._cached_locs = np.array(data[self.loc_key], copy=True)
+
+        if self.param_key in data and self._cached_scales is not None:
+            param = data[self.param_key]
+            scale = self._broadcast_to(self._cached_scales.copy(), param)
+
+            loc = self._resolve(data, self.loc_key, self._cached_locs, 0.0)
+            loc = self._broadcast_to(loc, param)
+
+            data[self.param_key] = (param - loc) / scale
+
+        return data
+
+    def inverse(self, data: dict[str, np.ndarray], **kwargs) -> dict[str, np.ndarray]:
+        data = data.copy()
+
+        if self.param_key not in data:
+            return data
+
+        scale = self._resolve(data, self.scale_key, self._cached_scales, None)
+        if scale is None:
+            return data  # cannot unstandardize without scale
+
+        param = data[self.param_key]
+        scale = self._broadcast_to(scale, param)
+
+        loc = self._resolve(data, self.loc_key, self._cached_locs, 0.0)
+        loc = self._broadcast_to(loc, param)
+
+        data[self.param_key] = param * scale + loc
+
+        return data
 
 
 # =============================================================================
@@ -66,7 +199,7 @@ class InferenceNetworkConfig:
     Attributes
     ----------
     network_type : str
-        Type of inference network architecture (default: "CouplingFlow").
+        Type of inference network architecture (default: "FlowMatching").
         Options: "CouplingFlow", "FlowMatching".
     depth : int
         Number of coupling layers (CouplingFlow only, default: 7).
@@ -75,23 +208,25 @@ class InferenceNetworkConfig:
         default: (128, 128)).
     widths : tuple
         Hidden layer widths for the TimeMLP subnet (FlowMatching only,
-        default: (256, 256, 256)).
+        default: (128, 128, 128)).
     dropout : float
-        Dropout rate for regularization (default: 0.05).
+        Dropout rate for regularization (default: 0.1).
     use_optimal_transport : bool
         Use mini-batch optimal transport during FlowMatching training
         (FlowMatching only, default: False). Improves sample quality at
         ~2.5x training cost.
     """
-    network_type: str = "CouplingFlow"
+    network_type: str = "FlowMatching"
     # CouplingFlow-specific
     depth: int = 7
     hidden_sizes: Tuple[int, ...] = (128, 128)
     # FlowMatching-specific
-    widths: Tuple[int, ...] = (256, 256, 256)
+    widths: Tuple[int, ...] = (128, 128, 128)
+    time_embedding_dim: int = 8
     use_optimal_transport: bool = False
+    
     # Shared
-    dropout: float = 0.05
+    dropout: float = 0.1
 
 
 @dataclass
@@ -200,8 +335,16 @@ class AdapterSpec:
         Context variables (meta-parameters).
         Example: ["N", "p_alloc", "prior_df", "prior_scale"]
     standardize_keys : List[str]
-        Keys to standardize with mean=0, std=1.
-        Example: ["outcome", "covariate", "b_group"]
+        Keys to standardize with fixed mean=0, std=1.
+        Use this for data whose natural scale is already roughly standard.
+        Example: ["outcome", "covariate"]
+    prior_standardize : Dict[str, Tuple[Optional[str], str]]
+        Per-sample standardization of inference variables by their prior
+        location and scale: ``z = (param - loc) / scale``.
+        Maps ``{param_key: (loc_key, scale_key)}``.  Set *loc_key* to
+        ``None`` when the prior is centred at 0.
+        Example: {"b_group": (None, "prior_scale")}
+        Example: {"mu": ("prior_loc", "prior_scale")}
     broadcast_specs : Dict[str, str]
         Context variables to broadcast: {context_key: target_data_key}.
         Example: {"N": "outcome", "p_alloc": "outcome"}
@@ -215,6 +358,7 @@ class AdapterSpec:
     param_keys: List[str]
     context_keys: List[str]
     standardize_keys: List[str] = field(default_factory=list)
+    prior_standardize: Dict[str, Tuple[Optional[str], str]] = field(default_factory=dict)
     broadcast_specs: Dict[str, str] = field(default_factory=dict)
     context_transforms: Dict[str, Tuple[Callable, Callable]] = field(default_factory=dict)
     output_dtype: str = "float32"
@@ -226,12 +370,14 @@ def create_adapter(spec: AdapterSpec) -> bf.Adapter:
 
     This generic function can build adapters for any model by following
     the specification provided. The adapter chain performs:
-    1. Broadcasting of context variables
-    2. Standardization of specified keys
-    3. Set formation from data keys
-    4. Context transformations
-    5. Type conversion
-    6. Renaming and concatenation for BayesFlow interface
+
+    1. Per-sample prior standardization (``prior_standardize``)
+    2. Broadcasting of context variables
+    3. Fixed standardization of specified keys (mean=0, std=1)
+    4. Set formation from data keys
+    5. Context transformations
+    6. Type conversion
+    7. Renaming and concatenation for BayesFlow interface
 
     Parameters
     ----------
@@ -249,7 +395,8 @@ def create_adapter(spec: AdapterSpec) -> bf.Adapter:
     ...     set_keys=["outcome", "covariate", "group"],
     ...     param_keys=["b_group"],
     ...     context_keys=["N", "p_alloc"],
-    ...     standardize_keys=["outcome", "covariate", "b_group"],
+    ...     standardize_keys=["outcome", "covariate"],
+    ...     prior_standardize={"b_group": (None, "prior_scale")},
     ...     broadcast_specs={"N": "outcome"},
     ...     context_transforms={"N": (np.sqrt, np.square)},
     ... )
@@ -257,11 +404,17 @@ def create_adapter(spec: AdapterSpec) -> bf.Adapter:
     """
     adapter = bf.Adapter()
 
+    # Per-sample prior standardization (before broadcasts change shapes)
+    for param_key, (loc_key, scale_key) in spec.prior_standardize.items():
+        adapter.transforms.append(
+            PriorStandardize(param_key, scale_key=scale_key, loc_key=loc_key)
+        )
+
     # Apply broadcasts
     for ctx_key, target_key in spec.broadcast_specs.items():
         adapter = adapter.broadcast(ctx_key, to=target_key)
 
-    # Standardize
+    # Fixed standardization (for keys with known fixed scale)
     if spec.standardize_keys:
         adapter = adapter.standardize(spec.standardize_keys, mean=0, std=1)
 
