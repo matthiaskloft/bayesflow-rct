@@ -75,3 +75,6 @@ dmypy.json
 
 # Logs
 *.log
+
+# Optuna databases
+*.db
