@@ -5,8 +5,8 @@ import pytest
 
 os.environ.setdefault("KERAS_BACKEND", "torch")
 
-from rctbp_bf_training.core.infrastructure import InferenceNetworkConfig
-from rctbp_bf_training.models.ancova.model import ANCOVAConfig
+from bayesflow_rct.core.infrastructure import InferenceNetworkConfig
+from bayesflow_rct.models.ancova.model import ANCOVAConfig
 
 
 class TestANCOVAConfigDefaults:
@@ -16,7 +16,7 @@ class TestANCOVAConfigDefaults:
 
     def test_default_flow_matching_widths(self):
         config = ANCOVAConfig()
-        assert config.workflow.inference_network.widths == (256, 256, 256)
+        assert config.workflow.inference_network.widths == (125, 125, 125)
 
     def test_default_flow_matching_dropout(self):
         config = ANCOVAConfig()
@@ -39,4 +39,4 @@ class TestANCOVAConfigDefaults:
         d = config.to_dict()
         restored = ANCOVAConfig.from_dict(d)
         assert restored.workflow.inference_network.network_type == "FlowMatching"
-        assert tuple(restored.workflow.inference_network.widths) == (256, 256, 256)
+        assert tuple(restored.workflow.inference_network.widths) == (125, 125, 125)

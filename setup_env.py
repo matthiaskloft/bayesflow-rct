@@ -542,7 +542,7 @@ results['python'] = {
 
 # Check packages
 packages = {
-    'rctbp_bf_training': '__version__',
+    'bayesflow_rct': '__version__',
     'torch': '__version__',
     'bayesflow': '__version__',
     'keras': '__version__',
@@ -606,7 +606,7 @@ print(json.dumps(results))
             print(output.success(f"Python: {results['python']['version']}"))
 
         # Package versions
-        for package in ['rctbp_bf_training', 'torch', 'bayesflow', 'keras', 'numpy']:
+        for package in ['bayesflow_rct', 'torch', 'bayesflow', 'keras', 'numpy']:
             if package in results:
                 if results[package]['success']:
                     version = results[package].get('version', 'unknown')
@@ -659,7 +659,7 @@ def print_activation_instructions(activate_path: str):
         print(f"  source {activate_path}")
 
     print("\nTo verify the installation:")
-    print('  python -c "import rctbp_bf_training; import torch; print(torch.cuda.is_available())"')
+    print('  python -c "import bayesflow_rct; import torch; print(torch.cuda.is_available())"')
 
     print("\nTo use in Jupyter:")
     print("  # Option 1: Start Jupyter from the activated venv (recommended)")
@@ -669,7 +669,7 @@ def print_activation_instructions(activate_path: str):
         print(f"  source {activate_path} && jupyter notebook examples/")
     print("\n  # Option 2: Start Jupyter from anywhere and select the kernel:")
     print("  jupyter notebook examples/")
-    print("  # Then select: 'Python (rctbp_bf_training - venv)' from Kernel menu")
+    print("  # Then select: 'Python (bayesflow_rct - venv)' from Kernel menu")
     print("\n  Note: If kernel doesn't appear, restart Jupyter")
 
     print("\nTo run tests:")
@@ -739,7 +739,7 @@ def main():
     # Install Jupyter kernel
     print(output.header("Installing Jupyter Kernel"))
     kernel_name = f"rctbp-{args.name}"
-    kernel_display_name = f"Python (rctbp_bf_training - {args.name})"
+    kernel_display_name = f"Python (bayesflow_rct - {args.name})"
     install_jupyter_kernel(venv_paths["python"], venv_dir, kernel_name, kernel_display_name)
 
     # Print activation instructions

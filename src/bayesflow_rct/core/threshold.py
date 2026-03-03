@@ -8,14 +8,15 @@ This module is independent of Optuna and can be used standalone.
 """
 
 import gc
+from collections.abc import Callable
 from dataclasses import dataclass
 from itertools import product
-from typing import Any, Callable, Dict, List, Optional, Tuple
-
+from typing import Any
 
 # =============================================================================
 # QUALITY THRESHOLDS
 # =============================================================================
+
 
 @dataclass
 class QualityThresholds:
@@ -37,6 +38,7 @@ class QualityThresholds:
     min_improvement : float
         Minimum improvement to continue (default: 0.001).
     """
+
     max_cal_error: float = 0.02
     max_c2st_deviation: float = 0.05
     max_coverage_error: float = 0.03
@@ -48,10 +50,11 @@ class QualityThresholds:
 # THRESHOLD CHECKING
 # =============================================================================
 
+
 def check_thresholds(
-    metrics: Dict,
+    metrics: dict,
     thresholds: QualityThresholds,
-) -> Tuple[bool, Dict[str, float]]:
+) -> tuple[bool, dict[str, float]]:
     """
     Check if metrics meet quality thresholds.
 
@@ -96,11 +99,13 @@ def check_thresholds(
 # THRESHOLD-BASED TRAINING LOOP
 # =============================================================================
 
+
 def _cleanup() -> None:
     """Clean up GPU memory after a trial completes."""
     gc.collect()
     try:
         import torch
+
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
@@ -108,20 +113,21 @@ def _cleanup() -> None:
         pass
     try:
         import tensorflow as tf
+
         tf.keras.backend.clear_session()
     except (ImportError, AttributeError):
         pass
 
 
 def train_until_threshold(
-    build_workflow_fn: Callable[[Dict], Any],
+    build_workflow_fn: Callable[[dict], Any],
     train_fn: Callable[[Any], Any],
-    validate_fn: Callable[[Any], Dict],
-    hyperparams: Dict,
+    validate_fn: Callable[[Any], dict],
+    hyperparams: dict,
     thresholds: QualityThresholds = None,
-    checkpoint_path: Optional[str] = None,
+    checkpoint_path: str | None = None,
     verbose: bool = True,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Train a model repeatedly until quality thresholds are met.
 
@@ -160,18 +166,15 @@ def train_until_threshold(
 
     best_workflow = None
     best_metrics = None
-    best_composite = float('inf')
+    best_composite = float("inf")
     best_scores = None
-    all_histories: List[Any] = []
+    all_histories: list[Any] = []
     converged = False
 
     for iteration in range(1, thresholds.max_iterations + 1):
         if verbose:
             print(f"\n{'=' * 60}")
-            print(
-                f"Training Iteration {iteration}"
-                f"/{thresholds.max_iterations}"
-            )
+            print(f"Training Iteration {iteration}/{thresholds.max_iterations}")
             print(f"{'=' * 60}")
 
         # Build fresh model
@@ -201,9 +204,7 @@ def train_until_threshold(
 
         # Compute composite score for comparison
         composite = (
-            scores["cal_error"]
-            + scores["c2st_deviation"]
-            + scores["coverage_error"]
+            scores["cal_error"] + scores["c2st_deviation"] + scores["coverage_error"]
         )
 
         if verbose:
@@ -221,7 +222,7 @@ def train_until_threshold(
                 f" (threshold: {thresholds.max_coverage_error})"
             )
             print(f"  Composite Score:   {composite:.4f}")
-            status = '\u2713 YES' if passed else '\u2717 NO'
+            status = "\u2713 YES" if passed else "\u2717 NO"
             print(f"  Passed: {status}")
 
         # Track best
@@ -238,14 +239,12 @@ def train_until_threshold(
             # Save checkpoint
             if checkpoint_path is not None:
                 try:
-                    if hasattr(workflow, 'approximator'):
+                    if hasattr(workflow, "approximator"):
                         workflow.approximator.save(checkpoint_path)
                     else:
                         workflow.save(checkpoint_path)
                     if verbose:
-                        print(
-                            f"  \u2192 Checkpoint saved: {checkpoint_path}"
-                        )
+                        print(f"  \u2192 Checkpoint saved: {checkpoint_path}")
                 except Exception as e:
                     if verbose:
                         print(f"  \u2192 Checkpoint save failed: {e}")
@@ -256,9 +255,7 @@ def train_until_threshold(
         if passed:
             converged = True
             if verbose:
-                print(
-                    f"\n\u2713 Thresholds met at iteration {iteration}!"
-                )
+                print(f"\n\u2713 Thresholds met at iteration {iteration}!")
             break
 
         # Check if still improving enough to continue
@@ -269,10 +266,7 @@ def train_until_threshold(
                     f" ({improvement:.4f}"
                     f" < {thresholds.min_improvement})"
                 )
-                print(
-                    "  Consider adjusting architecture"
-                    " or training settings."
-                )
+                print("  Consider adjusting architecture or training settings.")
 
         # Cleanup for next iteration
         if workflow is not best_workflow:
@@ -280,20 +274,17 @@ def train_until_threshold(
         _cleanup()
 
     if not converged and verbose:
-        print(
-            "\n\u26a0 Max iterations reached"
-            " without meeting thresholds."
-        )
+        print("\n\u26a0 Max iterations reached without meeting thresholds.")
         print(f"  Best composite score: {best_composite:.4f}")
         print(f"  Best individual scores: {best_scores}")
 
     return {
-        'workflow': best_workflow,
-        'metrics': best_metrics,
-        'history': all_histories,
-        'iterations': len(all_histories),
-        'converged': converged,
-        'best_scores': best_scores,
+        "workflow": best_workflow,
+        "metrics": best_metrics,
+        "history": all_histories,
+        "iterations": len(all_histories),
+        "converged": converged,
+        "best_scores": best_scores,
     }
 
 
@@ -301,14 +292,15 @@ def train_until_threshold(
 # STRICT VALIDATION GRID
 # =============================================================================
 
+
 def create_strict_validation_grid(
-    N_vals: List[int] = None,
-    p_alloc_vals: List[float] = None,
-    prior_df_vals: List[int] = None,
-    prior_scale_vals: List[float] = None,
-    b_group_vals: List[float] = None,
-    b_covariate_vals: List[float] = None,
-) -> List[Dict]:
+    n_vals: list[int] = None,
+    p_alloc_vals: list[float] = None,
+    prior_df_vals: list[int] = None,
+    prior_scale_vals: list[float] = None,
+    b_group_vals: list[float] = None,
+    b_covariate_vals: list[float] = None,
+) -> list[dict]:
     """
     Create a strict validation grid covering the full parameter space.
 
@@ -317,7 +309,7 @@ def create_strict_validation_grid(
 
     Parameters
     ----------
-    N_vals : list of int, optional
+    n_vals : list of int, optional
         Sample sizes to test. Default: [20, 100, 500, 1000].
     p_alloc_vals : list of float, optional
         Allocation probabilities. Default: [0.5, 0.7].
@@ -335,8 +327,8 @@ def create_strict_validation_grid(
     list of dict
         Condition dictionaries with id_cond and parameter values.
     """
-    if N_vals is None:
-        N_vals = [20, 100, 500, 1000]
+    if n_vals is None:
+        n_vals = [20, 100, 500, 1000]
     if p_alloc_vals is None:
         p_alloc_vals = [0.5, 0.7]
     if prior_df_vals is None:
@@ -349,18 +341,26 @@ def create_strict_validation_grid(
         b_covariate_vals = [0.0]
 
     conditions = []
-    for idx, (n, p, pdf, psc, b_grp, b_cov) in enumerate(product(
-        N_vals, p_alloc_vals, prior_df_vals, prior_scale_vals,
-        b_group_vals, b_covariate_vals,
-    )):
-        conditions.append({
-            "id_cond": idx,
-            "n_total": n,
-            "p_alloc": p,
-            "prior_df": pdf,
-            "prior_scale": psc,
-            "b_arm_treat": b_grp,
-            "b_covariate": b_cov,
-        })
+    for idx, (n, p, pdf, psc, b_grp, b_cov) in enumerate(
+        product(
+            n_vals,
+            p_alloc_vals,
+            prior_df_vals,
+            prior_scale_vals,
+            b_group_vals,
+            b_covariate_vals,
+        )
+    ):
+        conditions.append(
+            {
+                "id_cond": idx,
+                "n_total": n,
+                "p_alloc": p,
+                "prior_df": pdf,
+                "prior_scale": psc,
+                "b_arm_treat": b_grp,
+                "b_covariate": b_cov,
+            }
+        )
 
     return conditions

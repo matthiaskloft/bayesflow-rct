@@ -34,12 +34,12 @@ def launch_dashboard(
     --------
     From Python:
 
-    >>> from rctbp_bf_training.core.dashboard import launch_dashboard
+    >>> from bayesflow_rct.core.dashboard import launch_dashboard
     >>> launch_dashboard("sqlite:///optuna_ancova_cont_2arms.db")
 
     From command line:
 
-    >>> python -m rctbp_bf_training.core.dashboard --dashboard sqlite:///study.db
+    >>> python -m bayesflow_rct.core.dashboard --dashboard sqlite:///study.db
 
     Notes
     -----
@@ -73,9 +73,7 @@ def launch_dashboard(
             time.sleep(1.5)
             webbrowser.open(url)
 
-        threading.Thread(
-            target=open_browser_delayed, daemon=True
-        ).start()
+        threading.Thread(target=open_browser_delayed, daemon=True).start()
 
     # Run the dashboard (blocking)
     optuna_dashboard.run_server(storage, host=host, port=port)
@@ -86,15 +84,13 @@ def _cli_main() -> None:
     import argparse
 
     parser = argparse.ArgumentParser(
-        description=(
-            "Optuna dashboard utilities for rctbp_bf_training"
-        ),
+        description=("Optuna dashboard utilities for bayesflow_rct"),
         formatter_class=argparse.RawDescriptionHelpFormatter,
         epilog="""
 Examples:
   Launch dashboard:
-    python -m rctbp_bf_training.core.dashboard --dashboard sqlite:///study.db
-    python -m rctbp_bf_training.core.dashboard \
+    python -m bayesflow_rct.core.dashboard --dashboard sqlite:///study.db
+    python -m bayesflow_rct.core.dashboard \
       --dashboard sqlite:///study.db --port 8888
         """,
     )

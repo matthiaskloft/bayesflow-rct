@@ -3,7 +3,7 @@
 
 FROM python:3.11-slim-bookworm
 
-LABEL maintainer="rctbp_bf_training"
+LABEL maintainer="bayesflow_rct"
 LABEL description="Neural Posterior Estimation training environment (CPU-only)"
 LABEL version="0.1.0"
 

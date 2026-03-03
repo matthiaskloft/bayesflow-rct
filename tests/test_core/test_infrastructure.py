@@ -7,7 +7,7 @@ os.environ.setdefault("KERAS_BACKEND", "torch")
 
 import bayesflow as bf
 
-from rctbp_bf_training.core.infrastructure import (
+from bayesflow_rct.core.infrastructure import (
     InferenceNetworkConfig,
     build_inference_network,
     params_dict_to_workflow_config,
@@ -19,9 +19,9 @@ from rctbp_bf_training.core.infrastructure import (
 # =============================================================================
 
 class TestInferenceNetworkConfig:
-    def test_default_is_coupling_flow(self):
+    def test_default_is_flow_matching(self):
         config = InferenceNetworkConfig()
-        assert config.network_type == "CouplingFlow"
+        assert config.network_type == "FlowMatching"
 
     def test_flow_matching_config(self):
         config = InferenceNetworkConfig(network_type="FlowMatching", widths=(128, 128), dropout=0.05)

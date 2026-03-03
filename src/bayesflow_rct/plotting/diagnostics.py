@@ -10,25 +10,25 @@ with Simulation-Based Calibration"
 """
 
 import io
-import numpy as np
-import matplotlib.pyplot as plt
-from typing import Optional, Tuple, Union, List, Dict
-from scipy import stats as scipy_stats
-from matplotlib.ticker import PercentFormatter
-import pandas as pd
-from PIL import Image
 
+import matplotlib.pyplot as plt
+import numpy as np
+import pandas as pd
+from matplotlib.ticker import PercentFormatter
+from PIL import Image
+from scipy import stats as scipy_stats
 
 # =============================================================================
 # GRID LAYOUT HELPER
 # =============================================================================
 
+
 def _create_condition_grid(
     n_conditions: int,
     max_conditions: int = 16,
     max_cols: int = 4,
-    figsize_per_plot: Tuple[float, float] = (3.0, 3.0),
-) -> Tuple[plt.Figure, np.ndarray, int, int, int]:
+    figsize_per_plot: tuple[float, float] = (3.0, 3.0),
+) -> tuple[plt.Figure, np.ndarray, int, int, int]:
     """
     Create a subplot grid for condition-level plots.
 
@@ -60,7 +60,8 @@ def _create_condition_grid(
     n_rows = int(np.ceil(n_conds / n_cols))
 
     fig, axes = plt.subplots(
-        n_rows, n_cols,
+        n_rows,
+        n_cols,
         figsize=(figsize_per_plot[0] * n_cols, figsize_per_plot[1] * n_rows),
     )
     if n_conds == 1:
@@ -86,23 +87,24 @@ def _hide_empty_subplots(
 # DIAGNOSTIC PLOTS
 # =============================================================================
 
+
 def plot_diagnostic_dashboard(
-    estimates: Dict,
-    targets: Dict,
+    estimates: dict,
+    targets: dict,
     param_key: str = "b_group",
     variable_name: str = r"$b_2$ (treatment effect)",
     num_bins: int = 50,
-    figsize: tuple = (14, 10)
+    figsize: tuple = (14, 10),
 ) -> plt.Figure:
     """
     Create a 2x2 diagnostic dashboard using BayesFlow plots.
-    
+
     Panels:
     1. Recovery (BayesFlow)
     2. Coverage Difference
     3. Calibration Histogram (BayesFlow)
     4. Calibration ECDF (BayesFlow)
-    
+
     Parameters:
     -----------
     estimates : dict
@@ -117,13 +119,13 @@ def plot_diagnostic_dashboard(
         Number of bins for histogram
     figsize : tuple
         Figure size
-        
+
     Returns:
     --------
     matplotlib Figure
     """
     import bayesflow as bf
-    
+
     def fig_to_image(fig, dpi=150):
         """Render a matplotlib Figure to a numpy image array."""
         buf = io.BytesIO()
@@ -135,28 +137,26 @@ def plot_diagnostic_dashboard(
 
     # Create each diagnostic figure
     fig_recovery = bf.diagnostics.plots.recovery(
-        estimates=estimates, 
-        targets=targets,
-        variable_names=[variable_name]
+        estimates=estimates, targets=targets, variable_names=[variable_name]
     )
 
     fig_coverage_diff = plot_coverage_diff(
-        estimates=estimates[param_key], 
+        estimates=estimates[param_key],
         targets=targets[param_key],
         variable_name=variable_name,
         prob=0.95,
-        max_points=100
+        max_points=100,
     )
 
     fig_hist = bf.diagnostics.plots.calibration_histogram(
         estimates=estimates,
         targets=targets,
         num_bins=num_bins,
-        variable_names=[variable_name]
+        variable_names=[variable_name],
     )
 
     fig_ecdf = bf.diagnostics.plots.calibration_ecdf(
-        estimates=estimates, 
+        estimates=estimates,
         targets=targets,
         variable_names=[variable_name],
         difference=True,
@@ -196,11 +196,11 @@ def plot_sbc_rank_histogram(
     ranks: np.ndarray,
     n_post_draws: int,
     n_bins: int = 20,
-    ax: Optional[plt.Axes] = None,
+    ax: plt.Axes | None = None,
     title: str = "SBC Rank Histogram",
     color: str = "#132a70",
     show_ci: bool = True,
-    ci_level: float = 0.99
+    ci_level: float = 0.99,
 ) -> plt.Axes:
     """
     Plot histogram of SBC ranks with expected uniform distribution.
@@ -250,15 +250,16 @@ def plot_sbc_rank_histogram(
         fractional_ranks,
         bins=n_bins,
         range=(0, 1),
-        edgecolor='white',
+        edgecolor="white",
         alpha=0.95,
         color=color,
-        label='Observed'
+        label="Observed",
     )
 
     # Confidence interval band using normal approximation to binomial
     if show_ci:
         from scipy.stats import norm
+
         z = norm.ppf((1 + ci_level) / 2)
         # Binomial std for each bin: sqrt(n * p * (1-p)) where p = 1/n_bins
         p = 1 / n_bins
@@ -270,22 +271,17 @@ def plot_sbc_rank_histogram(
             ci_low,
             ci_high,
             alpha=0.3,
-            facecolor='grey',
-            label=f'{int(ci_level*100)}% CI'
+            facecolor="grey",
+            label=f"{int(ci_level * 100)}% CI",
         )
 
     # Expected uniform line (on top of band)
     ax.axhline(
-        expected_per_bin,
-        color='grey',
-        linestyle='-',
-        linewidth=1,
-        alpha=0.9,
-        zorder=2
+        expected_per_bin, color="grey", linestyle="-", linewidth=1, alpha=0.9, zorder=2
     )
 
-    ax.set_xlabel('Rank statistic', fontsize=16)
-    ax.set_ylabel('', fontsize=16)
+    ax.set_xlabel("Rank statistic", fontsize=16)
+    ax.set_ylabel("", fontsize=16)
     ax.set_xlim(0, 1)
     ax.set_title(title, fontsize=18)
     ax.tick_params(labelsize=12)
@@ -297,12 +293,12 @@ def plot_sbc_rank_histogram(
 def plot_sbc_ecdf_diff(
     ranks: np.ndarray,
     n_post_draws: int,
-    ax: Optional[plt.Axes] = None,
+    ax: plt.Axes | None = None,
     title: str = "SBC ECDF Difference",
     color: str = "#132a70",
     show_band: bool = True,
     alpha_level: float = 0.05,
-    show_legend: bool = True
+    show_legend: bool = True,
 ) -> plt.Axes:
     """
     Plot ECDF difference mimicking BayesFlow's calibration_ecdf(difference=True).
@@ -337,21 +333,21 @@ def plot_sbc_ecdf_diff(
         fig, ax = plt.subplots(figsize=(8, 5))
 
     n_sims = len(ranks)
-    
+
     # Convert to fractional ranks (0 to 1 scale) - BayesFlow style
     fractional_ranks = ranks / n_post_draws
     sorted_ranks = np.sort(fractional_ranks)
-    
+
     # Create step-function ECDF (BayesFlow approach)
     # Repeat each x value twice to create steps
     xx = np.repeat(sorted_ranks, 2)
     xx = np.pad(xx, (1, 1), constant_values=(0, 1))
     yy = np.linspace(0, 1, num=xx.shape[-1] // 2)
     yy = np.repeat(yy, 2)
-    
+
     # Compute difference from uniform (diagonal)
     yy_diff = yy - xx
-    
+
     # Simultaneous confidence bands (BayesFlow lens-shaped bands)
     # Based on the variance of uniform order statistics: Var ~ z*(1-z)
     if show_band:
@@ -360,40 +356,42 @@ def plot_sbc_ecdf_diff(
         # Lens-shaped bands: scale by sqrt(z*(1-z)) / 0.5 to match BayesFlow
         # Maximum at z=0.5, zero at z=0 and z=1
         scale = np.sqrt(z * (1 - z)) / 0.5
-        L = -epsilon * scale
-        U = epsilon * scale
-        
-        ax.fill_between(
-            z, L, U,
-            color='grey',
-            alpha=0.2,
-            label=rf"{int((1-alpha_level)*100)}$\%$ Confidence Bands"
-        )
-    
-    # Plot ECDF difference as step function
-    ax.plot(xx, yy_diff, color=color, alpha=0.95, label='Rank ECDF')
+        lower_band = -epsilon * scale
+        upper_band = epsilon * scale
 
-    ax.set_xlabel('Fractional rank statistic', fontsize=16)
-    ax.set_ylabel('ECDF Difference', fontsize=16)
+        ax.fill_between(
+            z,
+            lower_band,
+            upper_band,
+            color="grey",
+            alpha=0.2,
+            label=rf"{int((1 - alpha_level) * 100)}$\%$ Confidence Bands",
+        )
+
+    # Plot ECDF difference as step function
+    ax.plot(xx, yy_diff, color=color, alpha=0.95, label="Rank ECDF")
+
+    ax.set_xlabel("Fractional rank statistic", fontsize=16)
+    ax.set_ylabel("ECDF Difference", fontsize=16)
     ax.set_xlim(0, 1)
     ax.set_title(title, fontsize=18)
     ax.tick_params(labelsize=12)
-    
+
     if show_legend:
-        ax.legend(loc='upper right', fontsize=14)
+        ax.legend(loc="upper right", fontsize=14)
 
     return ax
 
 
 def plot_sbc_diagnostics(
-    metrics_or_ranks: Union[Dict, np.ndarray],
-    n_post_draws: Optional[int] = None,
+    metrics_or_ranks: dict | np.ndarray,
+    n_post_draws: int | None = None,
     figsize: tuple = (14, 10),
-    title_prefix: str = ""
+    title_prefix: str = "",
 ) -> plt.Figure:
     """
     Create a four-panel SBC diagnostic plot combining all simulations across conditions.
-    
+
     Panels:
     1. Rank Histogram - shows distribution of SBC ranks (should be uniform)
     2. ECDF Difference - deviation from uniform CDF
@@ -436,11 +434,15 @@ def plot_sbc_diagnostics(
     axes = axes.flatten()
 
     # Panel 1: Rank Histogram
-    hist_title = f"{title_prefix} Rank Histogram" if title_prefix else "SBC Rank Histogram"
+    hist_title = (
+        f"{title_prefix} Rank Histogram" if title_prefix else "SBC Rank Histogram"
+    )
     plot_sbc_rank_histogram(ranks, n_post_draws, ax=axes[0], title=hist_title)
 
     # Panel 2: ECDF Difference
-    ecdf_title = f"{title_prefix} ECDF Difference" if title_prefix else "SBC ECDF Difference"
+    ecdf_title = (
+        f"{title_prefix} ECDF Difference" if title_prefix else "SBC ECDF Difference"
+    )
     plot_sbc_ecdf_diff(ranks, n_post_draws, ax=axes[1], title=ecdf_title)
 
     # Panel 3: Coverage Profile (styled like plot_coverage_diff)
@@ -448,9 +450,11 @@ def plot_sbc_diagnostics(
         coverage_profile = summary["coverage_profile"]
         levels = sorted(coverage_profile.keys())
         widths = np.array(levels)
-        empirical_coverage = np.array([coverage_profile[l] for l in levels])
+        empirical_coverage = np.array(
+            [coverage_profile[level_item] for level_item in levels]
+        )
         diff = empirical_coverage - widths
-        
+
         # Wilson score CI for each coverage level
         n_sims = summary.get("n_simulations", len(metrics["simulation_metrics"]))
         prob = 0.95
@@ -460,17 +464,30 @@ def plot_sbc_diagnostics(
         for cov in empirical_coverage:
             denominator = 1 + z**2 / n_sims
             center = (cov + z**2 / (2 * n_sims)) / denominator
-            margin = z * np.sqrt(cov * (1 - cov) / n_sims + z**2 / (4 * n_sims**2)) / denominator
+            margin = (
+                z
+                * np.sqrt(cov * (1 - cov) / n_sims + z**2 / (4 * n_sims**2))
+                / denominator
+            )
             ci_low.append(max(0, center - margin))
             ci_high.append(min(1, center + margin))
         ci_low = np.array(ci_low)
         ci_high = np.array(ci_high)
         diff_low = ci_low - widths
         diff_high = ci_high - widths
-        
+
         ax = axes[2]
-        ax.fill_between(widths, diff_low, diff_high, alpha=0.2, color="grey", label=f"{int(prob*100)}% CI")
-        ax.plot(widths, diff, "-", color="#132a70", linewidth=1.5, label="Coverage diff")
+        ax.fill_between(
+            widths,
+            diff_low,
+            diff_high,
+            alpha=0.2,
+            color="grey",
+            label=f"{int(prob * 100)}% CI",
+        )
+        ax.plot(
+            widths, diff, "-", color="#132a70", linewidth=1.5, label="Coverage diff"
+        )
         ax.axhline(0, linestyle="--", color="black", linewidth=1, alpha=0.7, zorder=0)
         ax.set_xlabel("Nominal Coverage", fontsize=12)
         ax.set_ylabel("Observed - Nominal", fontsize=12)
@@ -483,54 +500,78 @@ def plot_sbc_diagnostics(
         ax.xaxis.set_major_formatter(PercentFormatter(1.0))
         ax.yaxis.set_major_formatter(PercentFormatter(1.0))
     else:
-        axes[2].text(0.5, 0.5, "Coverage profile\nnot available", 
-                     ha='center', va='center', fontsize=12)
+        axes[2].text(
+            0.5,
+            0.5,
+            "Coverage profile\nnot available",
+            ha="center",
+            va="center",
+            fontsize=12,
+        )
         axes[2].set_title("Coverage Profile")
-        axes[2].axis('off')
+        axes[2].axis("off")
 
     # Panel 4: Recovery Scatter (if metrics available)
     if has_full_metrics:
         sim_metrics = metrics["simulation_metrics"]
         true_vals = sim_metrics["true_value"].values
         post_medians = sim_metrics["posterior_median"].values
-        
+
         ax = axes[3]
-        ax.scatter(true_vals, post_medians, alpha=0.25, s=8, c='#132a70', edgecolors='none')
-        
-        lims = [min(true_vals.min(), post_medians.min()), 
-                max(true_vals.max(), post_medians.max())]
+        ax.scatter(
+            true_vals, post_medians, alpha=0.25, s=8, c="#132a70", edgecolors="none"
+        )
+
+        lims = [
+            min(true_vals.min(), post_medians.min()),
+            max(true_vals.max(), post_medians.max()),
+        ]
         margin = (lims[1] - lims[0]) * 0.05
         lims = [lims[0] - margin, lims[1] + margin]
-        ax.plot(lims, lims, 'k--', linewidth=1.5, alpha=0.8)
-        
+        ax.plot(lims, lims, "k--", linewidth=1.5, alpha=0.8)
+
         # Compute correlation (BayesFlow shows r, not R²)
         corr = np.corrcoef(true_vals, post_medians)[0, 1]
-        
+
         ax.set_xlabel("Ground truth", fontsize=12)
         ax.set_ylabel("Estimate", fontsize=12)
         ax.set_title("Recovery", fontsize=14)
-        ax.text(0.05, 0.95, f'$r$ = {corr:.3f}', transform=ax.transAxes, 
-                fontsize=12, verticalalignment='top')
+        ax.text(
+            0.05,
+            0.95,
+            f"$r$ = {corr:.3f}",
+            transform=ax.transAxes,
+            fontsize=12,
+            verticalalignment="top",
+        )
         ax.set_xlim(lims)
         ax.set_ylim(lims)
-        ax.set_aspect('equal')
+        ax.set_aspect("equal")
         ax.tick_params(labelsize=10)
     else:
-        axes[3].text(0.5, 0.5, "Recovery plot\nnot available", 
-                     ha='center', va='center', fontsize=12)
+        axes[3].text(
+            0.5,
+            0.5,
+            "Recovery plot\nnot available",
+            ha="center",
+            va="center",
+            fontsize=12,
+        )
         axes[3].set_title("Recovery")
-        axes[3].axis('off')
+        axes[3].axis("off")
 
-    plt.suptitle(f"SBC Diagnostics (n={len(ranks):,} simulations)", 
-                 fontsize=14, fontweight='bold', y=1.02)
+    plt.suptitle(
+        f"SBC Diagnostics (n={len(ranks):,} simulations)",
+        fontsize=14,
+        fontweight="bold",
+        y=1.02,
+    )
     plt.tight_layout()
     return fig
 
 
 def plot_sbc_from_metrics(
-    metrics: Dict,
-    figsize: tuple = (12, 5),
-    title_prefix: str = ""
+    metrics: dict, figsize: tuple = (12, 5), title_prefix: str = ""
 ) -> plt.Figure:
     """
     Create SBC diagnostic plots directly from validation metrics output.
@@ -569,11 +610,11 @@ def plot_sbc_from_metrics(
 
 
 def plot_sbc_by_condition(
-    metrics_or_df: Union[Dict, pd.DataFrame],
-    n_post_draws: Optional[int] = None,
+    metrics_or_df: dict | pd.DataFrame,
+    n_post_draws: int | None = None,
     condition_col: str = "id_cond",
     max_conditions: int = 9,
-    figsize_per_plot: tuple = (4, 3)
+    figsize_per_plot: tuple = (4, 3),
 ) -> plt.Figure:
     """
     Plot SBC rank histograms for multiple conditions in a grid.
@@ -621,7 +662,9 @@ def plot_sbc_by_condition(
     conditions = simulation_metrics[condition_col].unique()[:max_conditions]
 
     fig, axes, n_conds, n_rows, n_cols = _create_condition_grid(
-        len(conditions), max_conditions, max_cols=3,
+        len(conditions),
+        max_conditions,
+        max_cols=3,
         figsize_per_plot=figsize_per_plot,
     )
 
@@ -630,14 +673,10 @@ def plot_sbc_by_condition(
         ax = axes[row, col]
 
         mask = simulation_metrics[condition_col] == cond_id
-        ranks = simulation_metrics.loc[mask, 'sbc_rank'].values
+        ranks = simulation_metrics.loc[mask, "sbc_rank"].values
 
         plot_sbc_rank_histogram(
-            ranks,
-            n_post_draws,
-            ax=ax,
-            title=f"Condition {cond_id}",
-            n_bins=15
+            ranks, n_post_draws, ax=ax, title=f"Condition {cond_id}", n_bins=15
         )
         ax.legend().set_visible(False)  # Hide legend for cleaner grid
 
@@ -650,9 +689,9 @@ def plot_sbc_by_condition(
 def plot_recovery(
     estimates: np.ndarray,
     targets: np.ndarray,
-    ax: Optional[plt.Axes] = None,
+    ax: plt.Axes | None = None,
     title: str = "Parameter Recovery",
-    color: str = "#132a70"
+    color: str = "#132a70",
 ) -> plt.Axes:
     """
     Plot posterior mean vs true value (recovery plot).
@@ -689,39 +728,42 @@ def plot_recovery(
         post_means = estimates.flatten()
 
     # Plot scatter (BayesFlow style: semitransparent points)
-    ax.scatter(targets, post_means, alpha=0.25, s=20, color=color, edgecolors='none')
+    ax.scatter(targets, post_means, alpha=0.25, s=20, color=color, edgecolors="none")
 
     # Diagonal line (black dashed)
-    lims = [
-        min(targets.min(), post_means.min()),
-        max(targets.max(), post_means.max())
-    ]
+    lims = [min(targets.min(), post_means.min()), max(targets.max(), post_means.max())]
     margin = (lims[1] - lims[0]) * 0.05
     lims = [lims[0] - margin, lims[1] + margin]
-    ax.plot(lims, lims, 'k--', linewidth=1.5, alpha=0.8)
+    ax.plot(lims, lims, "k--", linewidth=1.5, alpha=0.8)
 
     # Compute R² (shown in title like BayesFlow)
     corr = np.corrcoef(targets, post_means)[0, 1]
-    r2 = corr ** 2
+    corr**2
 
-    ax.set_xlabel('Ground truth', fontsize=16)
-    ax.set_ylabel('Estimate', fontsize=16)
-    ax.set_title(f'{title}', fontsize=18)
-    ax.text(0.05, 0.95, f'$r$ = {corr:.3f}', transform=ax.transAxes, 
-            fontsize=16, verticalalignment='top')
+    ax.set_xlabel("Ground truth", fontsize=16)
+    ax.set_ylabel("Estimate", fontsize=16)
+    ax.set_title(f"{title}", fontsize=18)
+    ax.text(
+        0.05,
+        0.95,
+        f"$r$ = {corr:.3f}",
+        transform=ax.transAxes,
+        fontsize=16,
+        verticalalignment="top",
+    )
     ax.set_xlim(lims)
     ax.set_ylim(lims)
-    ax.set_aspect('equal')
+    ax.set_aspect("equal")
     ax.tick_params(labelsize=12)
 
     return ax
 
 
 def plot_coverage_from_metrics(
-    metrics: Dict,
+    metrics: dict,
     prob: float = 0.95,
     figsize: tuple = (8, 6),
-    title: str = "Coverage Difference Plot"
+    title: str = "Coverage Difference Plot",
 ) -> plt.Figure:
     """
     Plot global coverage difference using pre-computed coverage_profile from metrics.
@@ -743,19 +785,23 @@ def plot_coverage_from_metrics(
     """
     summary = metrics["summary"]
     coverage_profile = summary.get("coverage_profile", {})
-    
+
     if not coverage_profile:
-        raise ValueError("coverage_profile not found in summary. Re-run validation pipeline.")
-    
+        raise ValueError(
+            "coverage_profile not found in summary. Re-run validation pipeline."
+        )
+
     sim_metrics = metrics["simulation_metrics"]
     n_sims = len(sim_metrics)
-    
+
     # Extract coverage profile
     levels = sorted(coverage_profile.keys())
     widths = np.array(levels)
-    empirical_coverage = np.array([coverage_profile[l] for l in levels])
+    empirical_coverage = np.array(
+        [coverage_profile[level_item] for level_item in levels]
+    )
     diff = empirical_coverage - widths
-    
+
     # Wilson score confidence intervals
     z = scipy_stats.norm.ppf(0.5 + prob / 2)
     ci_low = []
@@ -763,35 +809,45 @@ def plot_coverage_from_metrics(
     for cov in empirical_coverage:
         denominator = 1 + z**2 / n_sims
         center = (cov + z**2 / (2 * n_sims)) / denominator
-        margin = z * np.sqrt(cov * (1 - cov) / n_sims + z**2 / (4 * n_sims**2)) / denominator
+        margin = (
+            z * np.sqrt(cov * (1 - cov) / n_sims + z**2 / (4 * n_sims**2)) / denominator
+        )
         ci_low.append(max(0, center - margin))
         ci_high.append(min(1, center + margin))
-    
+
     ci_low = np.array(ci_low)
     ci_high = np.array(ci_high)
     diff_low = ci_low - widths
     diff_high = ci_high - widths
-    
+
     fig, ax = plt.subplots(figsize=figsize)
-    
-    ax.fill_between(widths, diff_low, diff_high, alpha=0.2, color="grey",
-                    label=f"{int(prob*100)}% confidence band")
-    ax.plot(widths, diff, "-", color="#132a70", linewidth=2, label="Coverage difference")
+
+    ax.fill_between(
+        widths,
+        diff_low,
+        diff_high,
+        alpha=0.2,
+        color="grey",
+        label=f"{int(prob * 100)}% confidence band",
+    )
+    ax.plot(
+        widths, diff, "-", color="#132a70", linewidth=2, label="Coverage difference"
+    )
     ax.axhline(0, linestyle="--", color="black", linewidth=1.5, alpha=0.7, zorder=0)
-    
+
     ax.set_xlabel("Credible Interval Width (Nominal Coverage)", fontsize=16)
     ax.set_ylabel("Coverage Difference (Observed - Expected)", fontsize=16)
     ax.set_title(title, fontsize=18)
     ax.grid(True, alpha=0.3)
     ax.legend(loc="upper left", fontsize=14)
     ax.set_xlim(0, 1)
-    
+
     max_abs = max(np.max(np.abs(diff_low)), np.max(np.abs(diff_high)), 0.05)
     ax.set_ylim(-max_abs * 1.1, max_abs * 1.1)
-    
+
     ax.xaxis.set_major_formatter(PercentFormatter(1.0))
     ax.yaxis.set_major_formatter(PercentFormatter(1.0))
-    
+
     plt.tight_layout()
     return fig
 
@@ -802,7 +858,7 @@ def plot_coverage_diff(
     variable_name: str = "Parameter",
     prob: float = 0.95,
     max_points: int = 50,
-    ax: Optional[plt.Axes] = None
+    ax: plt.Axes | None = None,
 ) -> plt.Axes:
     """
     Plot coverage difference (observed - expected) with Wilson score intervals.
@@ -878,7 +934,11 @@ def plot_coverage_diff(
         z = scipy_stats.norm.ppf(0.5 + prob / 2)
         denominator = 1 + z**2 / n_sims
         center = (coverage + z**2 / (2 * n_sims)) / denominator
-        margin = z * np.sqrt(coverage * (1 - coverage) / n_sims + z**2 / (4 * n_sims**2)) / denominator
+        margin = (
+            z
+            * np.sqrt(coverage * (1 - coverage) / n_sims + z**2 / (4 * n_sims**2))
+            / denominator
+        )
 
         ci_low.append(max(0, center - margin))
         ci_high.append(min(1, center + margin))
@@ -892,12 +952,24 @@ def plot_coverage_diff(
     diff_low = ci_low - widths
     diff_high = ci_high - widths
 
-    ax.fill_between(widths, diff_low, diff_high, alpha=0.2, color="grey",
-                    label=f"{int(prob*100)}% confidence band")
-    ax.plot(widths, diff, "o-", color="#132a70", linewidth=2, markersize=4,
-            label="Coverage difference")
-    ax.axhline(0, linestyle="--", color="black", linewidth=1.5,
-               alpha=0.7, zorder=0)
+    ax.fill_between(
+        widths,
+        diff_low,
+        diff_high,
+        alpha=0.2,
+        color="grey",
+        label=f"{int(prob * 100)}% confidence band",
+    )
+    ax.plot(
+        widths,
+        diff,
+        "o-",
+        color="#132a70",
+        linewidth=2,
+        markersize=4,
+        label="Coverage difference",
+    )
+    ax.axhline(0, linestyle="--", color="black", linewidth=1.5, alpha=0.7, zorder=0)
 
     ax.set_xlabel("Credible Interval Width (Nominal Coverage)", fontsize=16)
     ax.set_ylabel("Coverage Difference (Observed - Expected)", fontsize=16)
@@ -916,9 +988,7 @@ def plot_coverage_diff(
 
 
 def plot_recovery_by_condition(
-    metrics: Dict,
-    max_conditions: int = 16,
-    figsize_per_plot: tuple = (3, 3)
+    metrics: dict, max_conditions: int = 16, figsize_per_plot: tuple = (3, 3)
 ) -> plt.Figure:
     """
     Plot recovery (posterior median vs true value) for each condition in a grid.
@@ -951,7 +1021,8 @@ def plot_recovery_by_condition(
     global_lims = [global_min - margin, global_max + margin]
 
     fig, axes, n_conds, n_rows, n_cols = _create_condition_grid(
-        len(unique_conds), max_conditions,
+        len(unique_conds),
+        max_conditions,
         figsize_per_plot=figsize_per_plot,
     )
 
@@ -965,20 +1036,28 @@ def plot_recovery_by_condition(
 
         # BayesFlow-style scatter: semitransparent points, identity line
         ax.scatter(
-            cond_true, cond_medians,
-            alpha=0.25, s=12, c='#132a70', edgecolors='none',
+            cond_true,
+            cond_medians,
+            alpha=0.25,
+            s=12,
+            c="#132a70",
+            edgecolors="none",
         )
-        ax.plot(global_lims, global_lims, 'k--', linewidth=1, alpha=0.8)
+        ax.plot(global_lims, global_lims, "k--", linewidth=1, alpha=0.8)
         ax.set_xlim(global_lims)
         ax.set_ylim(global_lims)
-        ax.set_aspect('equal', adjustable='box')
+        ax.set_aspect("equal", adjustable="box")
 
         # Compute correlation for subtitle (BayesFlow shows r, not R²)
         corr = np.corrcoef(cond_true, cond_medians)[0, 1]
         ax.set_title(f"Cond {cond_id}", fontsize=12)
         ax.text(
-            0.05, 0.95, f'$r$={corr:.2f}', transform=ax.transAxes,
-            fontsize=10, verticalalignment='top',
+            0.05,
+            0.95,
+            f"$r$={corr:.2f}",
+            transform=ax.transAxes,
+            fontsize=10,
+            verticalalignment="top",
         )
 
         if row == n_rows - 1:
@@ -991,17 +1070,19 @@ def plot_recovery_by_condition(
 
     fig.suptitle(
         "Recovery by Condition (Posterior Median)",
-        fontsize=12, fontweight="bold", y=1.02,
+        fontsize=12,
+        fontweight="bold",
+        y=1.02,
     )
     plt.tight_layout()
     return fig
 
 
 def plot_coverage_by_condition(
-    metrics: Dict,
+    metrics: dict,
     max_conditions: int = 16,
     figsize_per_plot: tuple = (3.5, 3),
-    prob: float = 0.95
+    prob: float = 0.95,
 ) -> plt.Figure:
     """
     Plot coverage difference for each condition in a grid.
@@ -1031,7 +1112,8 @@ def plot_coverage_by_condition(
     unique_conds = sim_metrics["id_cond"].unique()[:max_conditions]
 
     fig, axes, n_conds, n_rows, n_cols = _create_condition_grid(
-        len(unique_conds), max_conditions,
+        len(unique_conds),
+        max_conditions,
         figsize_per_plot=figsize_per_plot,
     )
 
@@ -1064,10 +1146,9 @@ def plot_coverage_by_condition(
             denominator = 1 + z**2 / n_sims
             center = (cov + z**2 / (2 * n_sims)) / denominator
             margin = (
-                z * np.sqrt(
-                    cov * (1 - cov) / n_sims
-                    + z**2 / (4 * n_sims**2)
-                ) / denominator
+                z
+                * np.sqrt(cov * (1 - cov) / n_sims + z**2 / (4 * n_sims**2))
+                / denominator
             )
             ci_low.append(max(0, center - margin))
             ci_high.append(min(1, center + margin))
@@ -1078,12 +1159,20 @@ def plot_coverage_by_condition(
         diff_high = ci_high - widths
 
         ax.fill_between(
-            widths, diff_low, diff_high, alpha=0.2, color="grey",
+            widths,
+            diff_low,
+            diff_high,
+            alpha=0.2,
+            color="grey",
         )
         ax.plot(widths, diff, "-", color="#132a70", linewidth=1.5)
         ax.axhline(
-            0, linestyle="--", color="black",
-            linewidth=1, alpha=0.7, zorder=0,
+            0,
+            linestyle="--",
+            color="black",
+            linewidth=1,
+            alpha=0.7,
+            zorder=0,
         )
         ax.set_title(f"Cond {cond_id}", fontsize=12)
         ax.set_xlim(0, 1)
@@ -1100,17 +1189,19 @@ def plot_coverage_by_condition(
 
     fig.suptitle(
         "Coverage Difference by Condition",
-        fontsize=14, fontweight="bold", y=1.02,
+        fontsize=14,
+        fontweight="bold",
+        y=1.02,
     )
     plt.tight_layout()
     return fig
 
 
 def plot_histogram_by_condition(
-    results_or_metrics: Dict,
+    results_or_metrics: dict,
     max_conditions: int = 16,
     figsize_per_plot: tuple = (3, 2.5),
-    n_bins: int = 15
+    n_bins: int = 15,
 ) -> plt.Figure:
     """
     Plot SBC rank histograms for each condition in a grid.
@@ -1145,7 +1236,8 @@ def plot_histogram_by_condition(
     unique_conds = np.unique(id_cond)[:max_conditions]
 
     fig, axes, n_conds, n_rows, n_cols = _create_condition_grid(
-        len(unique_conds), max_conditions,
+        len(unique_conds),
+        max_conditions,
         figsize_per_plot=figsize_per_plot,
     )
 
@@ -1158,8 +1250,11 @@ def plot_histogram_by_condition(
         ].values
 
         plot_sbc_rank_histogram(
-            cond_ranks, n_post_draws, ax=ax,
-            title=f"Cond {cond_id}", n_bins=n_bins,
+            cond_ranks,
+            n_post_draws,
+            ax=ax,
+            title=f"Cond {cond_id}",
+            n_bins=n_bins,
         )
         ax.legend().set_visible(False)
 
@@ -1167,16 +1262,18 @@ def plot_histogram_by_condition(
 
     fig.suptitle(
         "SBC Rank Histograms by Condition",
-        fontsize=14, fontweight="bold", y=1.02,
+        fontsize=14,
+        fontweight="bold",
+        y=1.02,
     )
     plt.tight_layout()
     return fig
 
 
 def plot_ecdf_by_condition(
-    results_or_metrics: Dict,
+    results_or_metrics: dict,
     max_conditions: int = 16,
-    figsize_per_plot: tuple = (3, 2.5)
+    figsize_per_plot: tuple = (3, 2.5),
 ) -> plt.Figure:
     """
     Plot SBC ECDF difference for each condition in a grid.
@@ -1210,7 +1307,8 @@ def plot_ecdf_by_condition(
     unique_conds = np.unique(id_cond)[:max_conditions]
 
     fig, axes, n_conds, n_rows, n_cols = _create_condition_grid(
-        len(unique_conds), max_conditions,
+        len(unique_conds),
+        max_conditions,
         figsize_per_plot=figsize_per_plot,
     )
 
@@ -1224,8 +1322,11 @@ def plot_ecdf_by_condition(
 
         # Use BayesFlow-style ECDF with no legend on subplots
         plot_sbc_ecdf_diff(
-            cond_ranks, n_post_draws, ax=ax,
-            title=f"Cond {cond_id}", show_legend=False,
+            cond_ranks,
+            n_post_draws,
+            ax=ax,
+            title=f"Cond {cond_id}",
+            show_legend=False,
         )
 
         # Smaller fonts for grid layout
@@ -1246,7 +1347,8 @@ def plot_ecdf_by_condition(
 
     fig.suptitle(
         "Calibration ECDF (difference) by Condition",
-        fontsize=14, y=1.02,
+        fontsize=14,
+        y=1.02,
     )
     plt.tight_layout()
     return fig

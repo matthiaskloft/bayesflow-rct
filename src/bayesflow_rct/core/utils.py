@@ -9,9 +9,9 @@ from keras.callbacks import Callback
 def loguniform_int(low, high, alpha=1.0, rng=np.random):
     """
     Sample an integer from a generalized log-uniform distribution.
-    
+
     Samples in log-space with optional skew controlled by alpha.
-    
+
     Parameters:
     -----------
     low : int
@@ -25,7 +25,7 @@ def loguniform_int(low, high, alpha=1.0, rng=np.random):
         - alpha > 1.0: more weight toward higher values
     rng : numpy random generator
         Random number generator (default: np.random)
-    
+
     Returns:
     --------
     int : Sampled value in [low, high]
@@ -42,7 +42,7 @@ def loguniform_int(low, high, alpha=1.0, rng=np.random):
 def loguniform_float(low, high, alpha=1.0, rng=np.random):
     """
     Sample a float from a generalized log-uniform distribution.
-    
+
     Parameters:
     -----------
     low : float
@@ -56,7 +56,7 @@ def loguniform_float(low, high, alpha=1.0, rng=np.random):
         - alpha > 1.0: more weight toward higher values
     rng : numpy random generator
         Random number generator (default: np.random)
-    
+
     Returns:
     --------
     float : Sampled value in [low, high]
@@ -72,10 +72,10 @@ def loguniform_float(low, high, alpha=1.0, rng=np.random):
 def sample_t_or_normal(df, scale=1.0, rng=np.random):
     """
     Sample from a Student-t or Normal distribution.
-    
+
     Uses Student-t when df is in [1, 100], otherwise uses Normal.
     As df -> infinity, Student-t converges to Normal.
-    
+
     Parameters:
     -----------
     df : float
@@ -85,7 +85,7 @@ def sample_t_or_normal(df, scale=1.0, rng=np.random):
         Scale parameter (standard deviation for Normal, scale for t).
     rng : numpy random generator
         Random number generator (default: np.random)
-    
+
     Returns:
     --------
     float : Sampled value with mean 0 and specified scale
@@ -116,7 +116,9 @@ class MovingAverageEarlyStopping(Callback):
         moving average validation loss.
     """
 
-    def __init__(self, window: int = 5, patience: int = 3, restore_best_weights: bool = True):
+    def __init__(
+        self, window: int = 5, patience: int = 3, restore_best_weights: bool = True
+    ):
         super().__init__()
         self.window = window
         self.patience = patience

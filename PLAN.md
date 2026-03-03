@@ -66,30 +66,30 @@ Keep the core optimization logic:
 **Plus backward-compat re-exports** at the bottom:
 ```python
 # Backward compatibility: re-export from split modules
-from rctbp_bf_training.core.objectives import (  # noqa: F401
+from bayesflow_rct.core.objectives import (  # noqa: F401
     PARAM_COUNT_LOG_SCALE, FAILED_TRIAL_CAL_ERROR, FAILED_TRIAL_PARAM_SCORE,
     get_param_count, estimate_param_count,
     compute_composite_objective, normalize_param_count,
     denormalize_param_count, extract_objective_values,
 )
-from rctbp_bf_training.core.results import (  # noqa: F401
+from bayesflow_rct.core.results import (  # noqa: F401
     get_pareto_trials, trials_to_dataframe, summarize_best_trials,
     plot_optimization_results, plot_pareto_front,
 )
-from rctbp_bf_training.core.threshold import (  # noqa: F401
+from bayesflow_rct.core.threshold import (  # noqa: F401
     QualityThresholds, check_thresholds, train_until_threshold,
     create_strict_validation_grid,
 )
-from rctbp_bf_training.core.dashboard import launch_dashboard  # noqa: F401
+from bayesflow_rct.core.dashboard import launch_dashboard  # noqa: F401
 ```
 
 #### Update `core/__init__.py`
 Add wildcard imports for new modules:
 ```python
-from rctbp_bf_training.core.objectives import *
-from rctbp_bf_training.core.results import *
-from rctbp_bf_training.core.threshold import *
-from rctbp_bf_training.core.dashboard import *
+from bayesflow_rct.core.objectives import *
+from bayesflow_rct.core.results import *
+from bayesflow_rct.core.threshold import *
+from bayesflow_rct.core.dashboard import *
 ```
 
 The top-level `__init__.py` stays unchanged — it imports from `core.optimization` which re-exports everything.
@@ -141,7 +141,7 @@ The top-level `__init__.py` stays unchanged — it imports from `core.optimizati
 - Run `ruff check src/`
 - Run `mypy src/`
 - Run `pytest` (existing test_package.py should still pass)
-- Verify all existing imports work (test that `from rctbp_bf_training.core.optimization import X` still works for all X)
+- Verify all existing imports work (test that `from bayesflow_rct.core.optimization import X` still works for all X)
 
 ---
 

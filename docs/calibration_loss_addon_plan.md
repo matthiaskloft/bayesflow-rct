@@ -5,14 +5,14 @@
 
 ## Context
 
-**Problem**: BayesFlow 2.x trains normalizing flows via maximum likelihood (negative log-density). The resulting posteriors can be **miscalibrated** — credible intervals don't have the advertised coverage. Currently `rctbp_bf_training` only detects this post-training via `validation.py`.
+**Problem**: BayesFlow 2.x trains normalizing flows via maximum likelihood (negative log-density). The resulting posteriors can be **miscalibrated** — credible intervals don't have the advertised coverage. Currently `bayesflow_rct` only detects this post-training via `validation.py`.
 
 **Solution**: Implement the differentiable calibration loss from [Falkner et al. (NeurIPS 2023)](https://arxiv.org/abs/2310.13402) as a **standalone add-on package** (`bayesflow-calibration-loss`) that plugs into BayesFlow's training loop. The loss penalizes coverage errors during training, producing well-calibrated posteriors by construction.
 
 **Why a separate package?**
-- Reusable across projects (not just rctbp_bf_training)
+- Reusable across projects (not just bayesflow_rct)
 - Clean dependency: `bayesflow-calibration-loss` depends on `bayesflow>=2.0` + `keras>=3.0`
-- `rctbp_bf_training` adds it as an optional dependency
+- `bayesflow_rct` adds it as an optional dependency
 
 ---
 
@@ -295,9 +295,9 @@ This callback updates the epoch counter so the gamma schedule works.
 
 ---
 
-## Integration with `rctbp_bf_training`
+## Integration with `bayesflow_rct`
 
-In `rctbp_bf_training`, add `bayesflow-calibration-loss` as optional dependency:
+In `bayesflow_rct`, add `bayesflow-calibration-loss` as optional dependency:
 
 ```toml
 # pyproject.toml
@@ -365,7 +365,7 @@ Recommended: `linear_warmup` with `warmup_epochs=20-50` so the network first lea
 4. **`diagnostics.py`** — Simple callback.
 5. **`__init__.py`** — Public API.
 6. **`tests/`** — Unit + integration tests.
-7. **Integration into `rctbp_bf_training`** — Add optional dependency, update optimization objective.
+7. **Integration into `bayesflow_rct`** — Add optional dependency, update optimization objective.
 
 ---
 
@@ -388,7 +388,7 @@ Recommended: `linear_warmup` with `warmup_epochs=20-50` so the network first lea
    - Training runs for 2 epochs without error (smoke test)
    - `gamma=0` produces identical loss to base approximator
 
-4. **End-to-end** (in `rctbp_bf_training` notebook):
+4. **End-to-end** (in `bayesflow_rct` notebook):
    - Train ANCOVA model with `CalibratedContinuousApproximator`
    - Compare coverage metrics vs standard training
    - Verify `calibration_loss` metric appears in training history and decreases

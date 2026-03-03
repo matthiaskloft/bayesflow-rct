@@ -5,7 +5,7 @@
 # CUDA 12.1 is well-supported by PyTorch and widely available
 FROM nvidia/cuda:12.1.1-cudnn8-runtime-ubuntu22.04
 
-LABEL maintainer="rctbp_bf_training"
+LABEL maintainer="bayesflow_rct"
 LABEL description="Neural Posterior Estimation training environment for RCT Bayesian Power analysis"
 LABEL version="0.1.0"
 

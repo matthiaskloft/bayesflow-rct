@@ -54,16 +54,16 @@ docker compose --profile cpu up npe-training-cpu
 
 ```bash
 # Standard build
-docker build -t rctbp-bf-training:latest .
+docker build -t bayesflow-rct:latest .
 
 # Build with custom UID/GID (for volume permissions)
-docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t rctbp-bf-training:latest .
+docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t bayesflow-rct:latest .
 ```
 
 ### Build CPU Image
 
 ```bash
-docker build -f Dockerfile.cpu -t rctbp-bf-training:cpu .
+docker build -f Dockerfile.cpu -t bayesflow-rct:cpu .
 ```
 
 ## Running Containers
@@ -79,13 +79,13 @@ docker run -it --gpus all \
   -p 8888:8888 \
   -v $(pwd)/data:/app/data \
   -v $(pwd)/models:/app/models \
-  rctbp-bf-training:latest
+   bayesflow-rct:latest
 ```
 
 ### Running Tests
 
 ```bash
-docker run --rm rctbp-bf-training:latest pytest
+docker run --rm bayesflow-rct:latest pytest
 ```
 
 ### Running Custom Scripts
@@ -93,14 +93,14 @@ docker run --rm rctbp-bf-training:latest pytest
 ```bash
 docker run --rm --gpus all \
   -v $(pwd)/data:/app/data \
-  rctbp-bf-training:latest \
+   bayesflow-rct:latest \
   python -c "import torch; print(f'GPU: {torch.cuda.is_available()}')"
 ```
 
 ### Interactive Shell
 
 ```bash
-docker run -it --gpus all rctbp-bf-training:latest bash
+docker run -it --gpus all bayesflow-rct:latest bash
 ```
 
 ## Volume Mounts
@@ -140,12 +140,12 @@ JUPYTER_TOKEN=your_secret_token docker compose up npe-training
 
 1. **Build and tag the image:**
    ```bash
-   docker build -t your-registry/rctbp-bf-training:latest .
+   docker build -t your-registry/bayesflow-rct:latest .
    ```
 
 2. **Push to container registry:**
    ```bash
-   docker push your-registry/rctbp-bf-training:latest
+   docker push your-registry/bayesflow-rct:latest
    ```
 
 3. **Configure Fluence deployment** with:
@@ -206,7 +206,7 @@ docker run --rm --gpus all nvidia/cuda:12.1.1-base-ubuntu22.04 nvidia-smi
 
 ```bash
 # Build with matching UID/GID
-docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t rctbp-bf-training:latest .
+docker build --build-arg UID=$(id -u) --build-arg GID=$(id -g) -t bayesflow-rct:latest .
 ```
 
 ### Out of Memory
@@ -263,5 +263,5 @@ docker compose build --no-cache npe-training
 docker compose down -v
 
 # Remove images
-docker rmi rctbp-bf-training:latest rctbp-bf-training:cpu
+docker rmi bayesflow-rct:latest bayesflow-rct:cpu
 ```

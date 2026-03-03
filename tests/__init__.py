@@ -1,1 +1,1 @@
-"""Tests for rctbp_bf_training package."""
+"""Tests for bayesflow_rct package."""

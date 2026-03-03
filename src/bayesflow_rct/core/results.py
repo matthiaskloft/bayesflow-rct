@@ -5,12 +5,12 @@ Utilities for extracting, summarizing, and plotting optimization results
 from Optuna hyperparameter studies.
 """
 
-from typing import Any, List, Optional, Tuple
+from typing import Any
 
 import numpy as np
 import pandas as pd
 
-from rctbp_bf_training.core.objectives import (
+from bayesflow_rct.core.objectives import (
     FAILED_TRIAL_CAL_ERROR,
     FAILED_TRIAL_PARAM_SCORE,
     denormalize_param_count,
@@ -19,6 +19,7 @@ from rctbp_bf_training.core.objectives import (
 # Optional imports with graceful fallback
 try:
     import optuna
+
     OPTUNA_AVAILABLE = True
 except ImportError:
     OPTUNA_AVAILABLE = False
@@ -28,9 +29,10 @@ except ImportError:
 # RESULTS EXTRACTION
 # =============================================================================
 
+
 def get_pareto_trials(
     study: "optuna.Study",
-) -> List["optuna.trial.FrozenTrial"]:
+) -> list["optuna.trial.FrozenTrial"]:
     """
     Get Pareto-optimal trials from a multi-objective study.
 
@@ -82,10 +84,10 @@ def trials_to_dataframe(
     if not OPTUNA_AVAILABLE:
         raise ImportError("Optuna required")
 
-    records = []
+    records: list[dict[str, Any]] = []
     for trial in study.trials:
         if trial.state == optuna.trial.TrialState.COMPLETE:
-            record = {"trial_number": trial.number}
+            record: dict[str, Any] = {"trial_number": trial.number}
             record.update(trial.params)
 
             # Handle multi-objective
@@ -96,15 +98,15 @@ def trials_to_dataframe(
             else:
                 record["objective"] = trial.values
 
-            record["duration_s"] = (
-                trial.datetime_complete - trial.datetime_start
-            ).total_seconds() if trial.datetime_complete else None
+            if trial.datetime_complete is not None and trial.datetime_start is not None:
+                record["duration_s"] = (
+                    trial.datetime_complete - trial.datetime_start
+                ).total_seconds()
+            else:
+                record["duration_s"] = None
 
             records.append(record)
-        elif (
-            include_pruned
-            and trial.state == optuna.trial.TrialState.PRUNED
-        ):
+        elif include_pruned and trial.state == optuna.trial.TrialState.PRUNED:
             record = {"trial_number": trial.number, "pruned": True}
             record.update(trial.params)
             records.append(record)
@@ -139,17 +141,21 @@ def summarize_best_trials(
         best_trials = study.best_trials
     else:
         # Single-objective: get top N
-        best_trials = sorted(
-            [
-                t for t in study.trials
-                if t.state == optuna.trial.TrialState.COMPLETE
-            ],
-            key=lambda t: t.value,
-        )[:n_best]
+        completed_trials = [
+            t
+            for t in study.trials
+            if t.state == optuna.trial.TrialState.COMPLETE and t.value is not None
+        ]
+        def _single_objective_value(trial: "optuna.trial.FrozenTrial") -> float:
+            if trial.value is None:
+                return float("inf")
+            return float(trial.value)
 
-    records = []
+        best_trials = sorted(completed_trials, key=_single_objective_value)[:n_best]
+
+    records: list[dict[str, Any]] = []
     for trial in best_trials:
-        record = {"trial": trial.number}
+        record: dict[str, Any] = {"trial": trial.number}
         record.update(trial.params)
 
         if isinstance(trial.values, (list, tuple)):
@@ -157,9 +163,7 @@ def summarize_best_trials(
             if len(trial.values) > 1:
                 # Denormalize param_count for human-readable display
                 normalized_params = trial.values[1]
-                record["param_count"] = denormalize_param_count(
-                    normalized_params
-                )
+                record["param_count"] = denormalize_param_count(normalized_params)
                 record["param_score"] = normalized_params
         else:
             record["objective"] = trial.value
@@ -179,9 +183,10 @@ def summarize_best_trials(
 # VISUALIZATION
 # =============================================================================
 
+
 def plot_optimization_results(
     study: "optuna.Study",
-    figsize: Tuple[int, int] = (14, 5),
+    figsize: tuple[int, int] = (14, 5),
 ) -> Any:
     """
     Plot optimization results: Pareto front, parameter importance, best configs.
@@ -205,21 +210,15 @@ def plot_optimization_results(
     ax = axes[0]
     if len(study.directions) > 1:
         trials_df = trials_to_dataframe(study)
-        if (
-            "objective_0" in trials_df.columns
-            and "objective_1" in trials_df.columns
-        ):
+        if "objective_0" in trials_df.columns and "objective_1" in trials_df.columns:
             # Filter out failed trials (those with penalty values)
-            valid_mask = (
-                (trials_df["objective_0"] < FAILED_TRIAL_CAL_ERROR)
-                & (trials_df["objective_1"] < FAILED_TRIAL_PARAM_SCORE)
+            valid_mask = (trials_df["objective_0"] < FAILED_TRIAL_CAL_ERROR) & (
+                trials_df["objective_1"] < FAILED_TRIAL_PARAM_SCORE
             )
             valid_df = trials_df[valid_mask]
 
             if len(valid_df) > 0:
-                denorm_params = valid_df["objective_1"].apply(
-                    denormalize_param_count
-                )
+                denorm_params = valid_df["objective_1"].apply(denormalize_param_count)
                 ax.scatter(
                     valid_df["objective_0"],
                     denorm_params,
@@ -231,27 +230,37 @@ def plot_optimization_results(
             n_failed = len(trials_df) - len(valid_df)
             if n_failed > 0:
                 ax.text(
-                    0.95, 0.95, f"Failed: {n_failed}",
-                    transform=ax.transAxes, ha='right', va='top',
-                    fontsize=9, color='gray',
+                    0.95,
+                    0.95,
+                    f"Failed: {n_failed}",
+                    transform=ax.transAxes,
+                    ha="right",
+                    va="top",
+                    fontsize=9,
+                    color="gray",
                 )
 
             # Highlight Pareto front (filter valid ones)
             pareto = study.best_trials
             pareto_obj0 = [
-                t.values[0] for t in pareto
+                t.values[0]
+                for t in pareto
                 if t.values[0] < FAILED_TRIAL_CAL_ERROR
                 and t.values[1] < FAILED_TRIAL_PARAM_SCORE
             ]
             pareto_obj1 = [
-                denormalize_param_count(t.values[1]) for t in pareto
+                denormalize_param_count(t.values[1])
+                for t in pareto
                 if t.values[0] < FAILED_TRIAL_CAL_ERROR
                 and t.values[1] < FAILED_TRIAL_PARAM_SCORE
             ]
             if pareto_obj0:
                 ax.scatter(
-                    pareto_obj0, pareto_obj1,
-                    c='red', s=100, marker='*',
+                    pareto_obj0,
+                    pareto_obj1,
+                    c="red",
+                    s=100,
+                    marker="*",
                     label="Pareto front",
                     zorder=10,
                 )
@@ -263,11 +272,10 @@ def plot_optimization_results(
     else:
         # Single objective: plot optimization history
         trials = [
-            t for t in study.trials
-            if t.state == optuna.trial.TrialState.COMPLETE
+            t for t in study.trials if t.state == optuna.trial.TrialState.COMPLETE
         ]
         values = [t.value for t in trials]
-        ax.plot(range(len(values)), values, 'o-', alpha=0.7)
+        ax.plot(range(len(values)), values, "o-", alpha=0.7)
         ax.set_xlabel("Trial")
         ax.set_ylabel("Objective")
         ax.set_title("Optimization History")
@@ -280,7 +288,7 @@ def plot_optimization_results(
         values = [importance[p] for p in params]
 
         y_pos = np.arange(len(params))
-        ax.barh(y_pos, values, align='center')
+        ax.barh(y_pos, values, align="center")
         ax.set_yticks(y_pos)
         ax.set_yticklabels(params)
         ax.invert_yaxis()
@@ -288,14 +296,18 @@ def plot_optimization_results(
         ax.set_title("Parameter Importance")
     except Exception:
         ax.text(
-            0.5, 0.5, "Importance N/A\n(need more trials)",
-            ha='center', va='center', transform=ax.transAxes,
+            0.5,
+            0.5,
+            "Importance N/A\n(need more trials)",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
         )
         ax.set_title("Parameter Importance")
 
     # 3. Best trial summary
     ax = axes[2]
-    ax.axis('off')
+    ax.axis("off")
 
     best_df = summarize_best_trials(study, n_best=3)
     if len(best_df) > 0:
@@ -304,7 +316,7 @@ def plot_optimization_results(
         for idx, row in best_df.head(3).iterrows():
             text_lines.append(f"Trial {int(row.get('trial', idx))}:")
             for col in best_df.columns:
-                if col != 'trial':
+                if col != "trial":
                     val = row[col]
                     if isinstance(val, float):
                         text_lines.append(f"  {col}: {val:.4g}")
@@ -313,11 +325,13 @@ def plot_optimization_results(
             text_lines.append("")
 
         ax.text(
-            0.1, 0.9, "\n".join(text_lines[:20]),
+            0.1,
+            0.9,
+            "\n".join(text_lines[:20]),
             transform=ax.transAxes,
             fontsize=9,
-            verticalalignment='top',
-            fontfamily='monospace',
+            verticalalignment="top",
+            fontfamily="monospace",
         )
 
     ax.set_title("Best Configurations")
@@ -328,7 +342,7 @@ def plot_optimization_results(
 
 def plot_pareto_front(
     study: "optuna.Study",
-    ax: Optional[Any] = None,
+    ax: Any | None = None,
     highlight_best: bool = True,
 ) -> Any:
     """
@@ -356,22 +370,23 @@ def plot_pareto_front(
 
     if "objective_0" not in trials_df.columns:
         ax.text(
-            0.5, 0.5, "Single objective study",
-            ha='center', va='center', transform=ax.transAxes,
+            0.5,
+            0.5,
+            "Single objective study",
+            ha="center",
+            va="center",
+            transform=ax.transAxes,
         )
         return ax
 
     # Filter valid trials and denormalize for display
-    valid_mask = (
-        (trials_df["objective_0"] < FAILED_TRIAL_CAL_ERROR)
-        & (trials_df["objective_1"] < FAILED_TRIAL_PARAM_SCORE)
+    valid_mask = (trials_df["objective_0"] < FAILED_TRIAL_CAL_ERROR) & (
+        trials_df["objective_1"] < FAILED_TRIAL_PARAM_SCORE
     )
     valid_df = trials_df[valid_mask]
 
     if len(valid_df) > 0:
-        denorm_params = valid_df["objective_1"].apply(
-            denormalize_param_count
-        )
+        denorm_params = valid_df["objective_1"].apply(denormalize_param_count)
         ax.scatter(
             valid_df["objective_0"],
             denorm_params,
@@ -396,19 +411,25 @@ def plot_pareto_front(
 
             # Sort for line plot
             sorted_idx = np.argsort(pareto_obj0)
-            pareto_obj0 = np.array(pareto_obj0)[sorted_idx]
-            pareto_obj1 = np.array(pareto_obj1)[sorted_idx]
+            pareto_obj0_arr = np.array(pareto_obj0)[sorted_idx]
+            pareto_obj1_arr = np.array(pareto_obj1)[sorted_idx]
 
             ax.plot(
-                pareto_obj0, pareto_obj1,
-                'r--', alpha=0.7, linewidth=2,
+                pareto_obj0_arr,
+                pareto_obj1_arr,
+                "r--",
+                alpha=0.7,
+                linewidth=2,
             )
             ax.scatter(
-                pareto_obj0, pareto_obj1,
-                c='red', s=150, marker='*',
+                pareto_obj0_arr,
+                pareto_obj1_arr,
+                c="red",
+                s=150,
+                marker="*",
                 label="Pareto front",
                 zorder=10,
-                edgecolors='black',
+                edgecolors="black",
             )
 
     ax.set_xlabel("Calibration Error", fontsize=12)

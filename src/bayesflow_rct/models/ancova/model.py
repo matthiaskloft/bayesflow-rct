@@ -8,42 +8,45 @@ This module provides ANCOVA-specific implementations:
 - Validation pipeline helpers
 - Model metadata utilities
 
-Generic infrastructure has been extracted to rctbp_bf_training.core.infrastructure
+Generic infrastructure has been extracted to bayesflow_rct.core.infrastructure
 """
 
-from dataclasses import dataclass, field, asdict
-from typing import Callable, TYPE_CHECKING, Any, List, Dict
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
+from typing import TYPE_CHECKING, Any
 
-import numpy as np
 import bayesflow as bf
+import numpy as np
 
 if TYPE_CHECKING:
-    from bayesflow import Simulator, Adapter
+    from bayesflow import Adapter, Simulator
 
-from rctbp_bf_training.core.utils import sample_t_or_normal, loguniform_int
-from rctbp_bf_training.core.infrastructure import (
-    SummaryNetworkConfig,
+from bayesflow_rct.core.infrastructure import (
+    AdapterSpec,
     InferenceNetworkConfig,
     WorkflowConfig,
-    AdapterSpec,
-    build_workflow,
-    build_summary_network,
     build_inference_network,
-    create_simulator as create_generic_simulator,
+    build_summary_network,
+    build_workflow,
     get_workflow_metadata,
-    save_workflow_with_metadata,
     load_workflow_with_metadata,
     params_dict_to_workflow_config,
+    save_workflow_with_metadata,
 )
-
+from bayesflow_rct.core.infrastructure import (
+    create_simulator as create_generic_simulator,
+)
+from bayesflow_rct.core.utils import loguniform_int, sample_t_or_normal
 
 # =============================================================================
 # ANCOVA-Specific Configuration Dataclasses
 # =============================================================================
 
+
 @dataclass
 class PriorConfig:
     """ANCOVA-specific prior distribution parameters."""
+
     b_covariate_scale: float = 2.0  # Scale for b_covariate Normal distribution
     # Note: sigma is fixed at 1.0 in this model (not estimated)
 
@@ -51,6 +54,7 @@ class PriorConfig:
 @dataclass
 class MetaConfig:
     """ANCOVA-specific meta-parameter sampling ranges for training."""
+
     n_min: int = 20
     n_max: int = 1000
     p_alloc_min: float = 0.5
@@ -83,6 +87,7 @@ class ANCOVAConfig:
     The default inference network is FlowMatching; use
     ``InferenceNetworkConfig(network_type="CouplingFlow")`` to switch back.
     """
+
     prior: PriorConfig = field(default_factory=PriorConfig)
     meta: MetaConfig = field(default_factory=MetaConfig)
     workflow: WorkflowConfig = field(default_factory=_default_ancova_workflow)
@@ -109,7 +114,10 @@ class ANCOVAConfig:
 # ANCOVA-Specific Simulator Functions
 # =============================================================================
 
-def prior(prior_df: float, prior_scale: float, config: PriorConfig, rng: np.random.Generator) -> dict:
+
+def prior(
+    prior_df: float, prior_scale: float, config: PriorConfig, rng: np.random.Generator
+) -> dict:
     """
     Sample parameters for model: outcome = b_covariate*x + b_group*group + noise.
 
@@ -134,13 +142,20 @@ def prior(prior_df: float, prior_scale: float, config: PriorConfig, rng: np.rand
     - b_group ~ t(prior_df, 0, prior_scale) or Normal if df <= 0 or df > 100
     - sigma is fixed at 1.0 (not a parameter)
     """
-    b_covariate = rng.normal(loc=0, scale=config.b_covariate_scale, size=1).astype(np.float64)
+    b_covariate = rng.normal(loc=0, scale=config.b_covariate_scale, size=1).astype(
+        np.float64
+    )
 
-    b_group = np.array([sample_t_or_normal(
-        df=float(np.asarray(prior_df).flat[0]),
-        scale=float(np.asarray(prior_scale).flat[0]),
-        rng=rng
-    )], dtype=np.float64)
+    b_group = np.array(
+        [
+            sample_t_or_normal(
+                df=float(np.asarray(prior_df).flat[0]),
+                scale=float(np.asarray(prior_scale).flat[0]),
+                rng=rng,
+            )
+        ],
+        dtype=np.float64,
+    )
 
     return dict(b_covariate=b_covariate, b_group=b_group)
 
@@ -148,7 +163,7 @@ def prior(prior_df: float, prior_scale: float, config: PriorConfig, rng: np.rand
 def likelihood(
     b_covariate: float,
     b_group: float,
-    N: int,
+    n_total: int,
     p_alloc: float,
     rng: np.random.Generator,
 ) -> dict:
@@ -163,7 +178,7 @@ def likelihood(
         Coefficient for baseline covariate.
     b_group : float
         Treatment effect (group difference).
-    N : int
+    n_total : int
         Total sample size.
     p_alloc : float
         Probability of treatment allocation (0 to 1).
@@ -177,7 +192,7 @@ def likelihood(
     b_cov = float(np.asarray(b_covariate).reshape(-1)[0])
     b_grp = float(np.asarray(b_group).reshape(-1)[0])
     sigma = 1.0  # Fixed
-    n_total = int(np.asarray(N).reshape(-1)[0])
+    n_total = int(np.asarray(n_total).reshape(-1)[0])
     p = float(np.clip(p_alloc, 0.01, 0.99))
 
     # Ensure both groups represented
@@ -215,20 +230,30 @@ def meta(config: MetaConfig, rng: np.random.Generator) -> dict:
     -------
     dict with N, p_alloc, prior_df, prior_scale
     """
-    N = loguniform_int(config.n_min, config.n_max, rng=rng)
+    n_total = loguniform_int(config.n_min, config.n_max, rng=rng)
     p_alloc = rng.uniform(config.p_alloc_min, config.p_alloc_max)
 
     # prior_df: log-uniform shifted to allow 0 (Normal)
-    prior_df = int(round(
-        loguniform_int(1, config.prior_df_max + 1, alpha=config.prior_df_alpha, rng=rng) - 1
-    ))
+    prior_df = int(
+        round(
+            loguniform_int(
+                1, config.prior_df_max + 1, alpha=config.prior_df_alpha, rng=rng
+            )
+            - 1
+        )
+    )
 
     prior_scale = rng.gamma(
         shape=config.prior_scale_gamma_shape,
         scale=config.prior_scale_gamma_scale,
     )
 
-    return dict(N=N, p_alloc=p_alloc, prior_df=prior_df, prior_scale=prior_scale)
+    return dict(
+        N=n_total,
+        p_alloc=p_alloc,
+        prior_df=prior_df,
+        prior_scale=prior_scale,
+    )
 
 
 def simulate_cond_batch(
@@ -296,6 +321,7 @@ def simulate_cond_batch(
 # ANCOVA-Specific Adapter Specification
 # =============================================================================
 
+
 def get_ancova_adapter_spec() -> AdapterSpec:
     """
     Return the adapter specification for ANCOVA 2-arms model.
@@ -337,6 +363,7 @@ def get_ancova_adapter_spec() -> AdapterSpec:
 # ANCOVA-Specific Factory Functions
 # =============================================================================
 
+
 def create_ancova_workflow_components(config: ANCOVAConfig) -> tuple:
     """
     Create all ANCOVA workflow components using infrastructure.
@@ -370,26 +397,34 @@ def create_ancova_workflow_components(config: ANCOVAConfig) -> tuple:
 
 def create_prior_fn(config: ANCOVAConfig, rng: np.random.Generator) -> Callable:
     """Create prior function with injected config and rng."""
+
     def _prior(prior_df, prior_scale):
         return prior(prior_df, prior_scale, config.prior, rng)
+
     return _prior
 
 
 def create_likelihood_fn(rng: np.random.Generator) -> Callable:
     """Create likelihood function with injected rng."""
-    def _likelihood(b_covariate, b_group, N, p_alloc):
-        return likelihood(b_covariate, b_group, N, p_alloc, rng)
+
+    def _likelihood(b_covariate, b_group, n_total, p_alloc):
+        return likelihood(b_covariate, b_group, n_total, p_alloc, rng)
+
     return _likelihood
 
 
 def create_meta_fn(config: ANCOVAConfig, rng: np.random.Generator) -> Callable:
     """Create meta function with injected config and rng."""
+
     def _meta():
         return meta(config.meta, rng)
+
     return _meta
 
 
-def create_simulator(config: ANCOVAConfig, rng: np.random.Generator = None) -> bf.simulators.Simulator:
+def create_simulator(
+    config: ANCOVAConfig, rng: np.random.Generator = None
+) -> bf.simulators.Simulator:
     """
     Create BayesFlow simulator for ANCOVA model.
 
@@ -421,7 +456,7 @@ def create_ancova_adapter() -> "Adapter":
     This is a convenience wrapper that creates an adapter using the
     ANCOVA adapter specification. It's equivalent to:
 
-        from rctbp_bf_training.core.infrastructure import create_adapter
+        from bayesflow_rct.core.infrastructure import create_adapter
         adapter = create_adapter(get_ancova_adapter_spec())
 
     Returns
@@ -433,7 +468,8 @@ def create_ancova_adapter() -> "Adapter":
     >>> adapter = create_ancova_adapter()
     >>> processed = adapter(simulator.sample(100))
     """
-    from rctbp_bf_training.core.infrastructure import create_adapter
+    from bayesflow_rct.core.infrastructure import create_adapter
+
     return create_adapter(get_ancova_adapter_spec())
 
 
@@ -441,8 +477,8 @@ def create_ancova_objective(
     config: ANCOVAConfig,
     simulator: "Simulator",
     adapter: "Adapter",
-    search_space: "HyperparameterSpace",
-    validation_conditions: List[Dict],
+    search_space: Any,
+    validation_conditions: list[dict],
     n_sims: int = 500,
     n_post_draws: int = 500,
     rng: np.random.Generator = None,
@@ -491,7 +527,7 @@ def create_ancova_objective(
     ... )
     >>> study.optimize(objective, n_trials=30)
     """
-    from rctbp_bf_training.core.optimization import create_optimization_objective
+    from bayesflow_rct.core.optimization import create_optimization_objective
 
     return create_optimization_objective(
         config=config,
@@ -503,7 +539,12 @@ def create_ancova_objective(
         inference_conditions=["N", "p_alloc", "prior_df", "prior_scale"],
         param_key="b_group",
         data_keys=["outcome", "covariate", "group"],
-        context_keys={"N": int, "p_alloc": float, "prior_df": float, "prior_scale": float},
+        context_keys={
+            "N": int,
+            "p_alloc": float,
+            "prior_df": float,
+            "prior_scale": float,
+        },
         true_param_key="b_arm_treat",
         simulate_fn_factory=make_simulate_fn,
         n_sims=n_sims,
@@ -516,10 +557,11 @@ def create_ancova_objective(
 # Training Helpers for train_until_threshold (ANCOVA-Specific)
 # =============================================================================
 
+
 def create_ancova_training_functions(
     simulator: "Simulator",
     adapter: "Adapter",
-    validation_conditions: List[Dict],
+    validation_conditions: list[dict],
     rng: np.random.Generator,
 ) -> tuple[Callable, Callable, Callable]:
     """
@@ -536,7 +578,8 @@ def create_ancova_training_functions(
     adapter : Adapter
         BayesFlow adapter for data transformation
     validation_conditions : list of dict
-        Conditions grid for validation (typically from create_validation_grid(extended=True))
+        Conditions grid for validation (typically from
+        create_validation_grid(extended=True))
     rng : np.random.Generator
         Random number generator for reproducibility
 
@@ -566,17 +609,13 @@ def create_ancova_training_functions(
     ...     thresholds=QualityThresholds(),
     ... )
     """
-    from rctbp_bf_training.core.infrastructure import (
-        params_dict_to_workflow_config,
-        build_summary_network,
-        build_inference_network,
-    )
-    from rctbp_bf_training.core.validation import (
-        run_validation_pipeline,
-        make_bayesflow_infer_fn,
-    )
-    from rctbp_bf_training.core.utils import MovingAverageEarlyStopping
     import keras
+
+    from bayesflow_rct.core.utils import MovingAverageEarlyStopping
+    from bayesflow_rct.core.validation import (
+        make_bayesflow_infer_fn,
+        run_validation_pipeline,
+    )
 
     def build_workflow_fn(params):
         """Build a fresh workflow from hyperparameters."""
@@ -628,7 +667,12 @@ def create_ancova_training_functions(
             workflow.approximator,
             param_key="b_group",
             data_keys=["outcome", "covariate", "group"],
-            context_keys={"N": int, "p_alloc": float, "prior_df": float, "prior_scale": float},
+            context_keys={
+                "N": int,
+                "p_alloc": float,
+                "prior_df": float,
+                "prior_scale": float,
+            },
         )
 
         results = run_validation_pipeline(
@@ -649,6 +693,7 @@ def create_ancova_training_functions(
 # Validation Helpers (ANCOVA-Specific)
 # =============================================================================
 
+
 def create_validation_grid(extended: bool = False) -> list[dict]:
     """
     Generate conditions for systematic validation.
@@ -667,41 +712,49 @@ def create_validation_grid(extended: bool = False) -> list[dict]:
     if extended:
         # Extended grid for final validation
         conditions = []
-        for idx, (n, pdf, psc, b_cov, b_grp, p_alloc) in enumerate(product(
-            [20, 200, 1000],          # N extremes
-            [0, 2],              # prior_df: Normal vs low-df t
-            [0.1, 5.0],          # prior_scale extremes
-            [-1.0, 1.0],         # b_covariate
-            [0.0, 0.3, 1.0],     # b_group: null, small, large
-            [0.5, 0.9],          # p_alloc
-        )):
-            conditions.append({
-                "id_cond": idx,
-                "n_total": n,
-                "p_alloc": p_alloc,
-                "b_covariate": b_cov,
-                "b_arm_treat": b_grp,
-                "prior_df": pdf,
-                "prior_scale": psc,
-            })
+        for idx, (n, pdf, psc, b_cov, b_grp, p_alloc) in enumerate(
+            product(
+                [20, 200, 1000],  # N extremes
+                [0, 2],  # prior_df: Normal vs low-df t
+                [0.1, 5.0],  # prior_scale extremes
+                [-1.0, 1.0],  # b_covariate
+                [0.0, 0.3, 1.0],  # b_group: null, small, large
+                [0.5, 0.9],  # p_alloc
+            )
+        ):
+            conditions.append(
+                {
+                    "id_cond": idx,
+                    "n_total": n,
+                    "p_alloc": p_alloc,
+                    "b_covariate": b_cov,
+                    "b_arm_treat": b_grp,
+                    "prior_df": pdf,
+                    "prior_scale": psc,
+                }
+            )
     else:
         # Reduced grid for optimization (faster)
         conditions = []
-        for idx, (n, pdf, psc, b_grp) in enumerate(product(
-            [20, 500],           # N extremes
-            [0, 3],             # prior_df: Normal vs moderate t
-            [0.5, 5.0],          # prior_scale extremes
-            [0.0, 0.5],          # b_group: null vs moderate
-        )):
-            conditions.append({
-                "id_cond": idx,
-                "n_total": n,
-                "p_alloc": 0.5,
-                "b_covariate": 0.0,
-                "b_arm_treat": b_grp,
-                "prior_df": pdf,
-                "prior_scale": psc,
-            })
+        for idx, (n, pdf, psc, b_grp) in enumerate(
+            product(
+                [20, 500],  # N extremes
+                [0, 3],  # prior_df: Normal vs moderate t
+                [0.5, 5.0],  # prior_scale extremes
+                [0.0, 0.5],  # b_group: null vs moderate
+            )
+        ):
+            conditions.append(
+                {
+                    "id_cond": idx,
+                    "n_total": n,
+                    "p_alloc": 0.5,
+                    "b_covariate": 0.0,
+                    "b_arm_treat": b_grp,
+                    "prior_df": pdf,
+                    "prior_scale": psc,
+                }
+            )
 
     return conditions
 
@@ -759,19 +812,25 @@ def make_infer_fn(approximator) -> Callable:
     -------
     callable: infer_fn(data, n_samples) -> np.ndarray
     """
-    from rctbp_bf_training.core.validation import make_bayesflow_infer_fn
+    from bayesflow_rct.core.validation import make_bayesflow_infer_fn
 
     return make_bayesflow_infer_fn(
         approximator,
         param_key="b_group",
         data_keys=["outcome", "covariate", "group"],
-        context_keys={"N": int, "p_alloc": float, "prior_df": float, "prior_scale": float},
+        context_keys={
+            "N": int,
+            "p_alloc": float,
+            "prior_df": float,
+            "prior_scale": float,
+        },
     )
 
 
 # =============================================================================
 # ANCOVA-Specific Metadata Utilities
 # =============================================================================
+
 
 def get_model_metadata(
     config: ANCOVAConfig,
@@ -801,8 +860,8 @@ def get_model_metadata(
         extra={
             "prior_config": asdict(config.prior),
             "meta_config": asdict(config.meta),
-            **(extra or {})
-        }
+            **(extra or {}),
+        },
     )
 
 

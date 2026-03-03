@@ -6,7 +6,7 @@ Supports multi-objective optimization (calibration error + parameter count).
 
 Usage
 -----
-from rctbp_bf_training.core.optimization import (
+from bayesflow_rct.core.optimization import (
     create_study,
     compute_composite_objective,
     get_param_count,
@@ -33,8 +33,9 @@ study.optimize(objective, n_trials=50)
 """
 
 import gc
+from collections.abc import Callable
 from dataclasses import dataclass
-from typing import Any, Callable, Dict, List, Optional, Tuple, Union
+from typing import Any
 
 import numpy as np
 
@@ -42,6 +43,7 @@ import numpy as np
 try:
     import optuna
     from optuna.trial import Trial
+
     OPTUNA_AVAILABLE = True
 except ImportError:
     OPTUNA_AVAILABLE = False
@@ -49,13 +51,14 @@ except ImportError:
 
 try:
     from keras.callbacks import Callback
+
     KERAS_AVAILABLE = True
 except ImportError:
     KERAS_AVAILABLE = False
     Callback = object  # type stub
 
 # Import from split modules (canonical locations)
-from rctbp_bf_training.core.objectives import (  # noqa: I001
+from bayesflow_rct.core.objectives import (  # noqa: I001
     FAILED_TRIAL_CAL_ERROR,
     FAILED_TRIAL_PARAM_SCORE,
     estimate_param_count,
@@ -68,13 +71,14 @@ from rctbp_bf_training.core.objectives import (  # noqa: I001
 # STUDY CREATION
 # =============================================================================
 
+
 def create_study(
     study_name: str = "npe_optimization",
-    directions: List[str] = None,
-    storage: Optional[str] = None,
+    directions: list[str] = None,
+    storage: str | None = None,
     load_if_exists: bool = True,
-    sampler: Optional[Any] = None,
-    pruner: Optional[Any] = None,
+    sampler: Any | None = None,
+    pruner: Any | None = None,
 ) -> "optuna.Study":
     """
     Create or load an Optuna study for hyperparameter optimization.
@@ -102,9 +106,7 @@ def create_study(
     optuna.Study
     """
     if not OPTUNA_AVAILABLE:
-        raise ImportError(
-            "Optuna is required. Install with: pip install optuna"
-        )
+        raise ImportError("Optuna is required. Install with: pip install optuna")
 
     if directions is None:
         directions = ["minimize", "minimize"]
@@ -140,6 +142,7 @@ def create_study(
 # =============================================================================
 # KERAS CALLBACK FOR OPTUNA
 # =============================================================================
+
 
 class OptunaReportCallback(Callback):
     """
@@ -203,6 +206,7 @@ class OptunaReportCallback(Callback):
 # HYPERPARAMETER SAMPLING HELPERS
 # =============================================================================
 
+
 @dataclass
 class HyperparameterSpace:
     """
@@ -238,20 +242,21 @@ class HyperparameterSpace:
     window : int
         Fixed moving average window (not optimized).
     """
+
     # DeepSet
-    summary_dim: Tuple[int, int] = (4, 16)
-    deepset_width: Tuple[int, int] = (32, 128)
-    deepset_depth: Tuple[int, int] = (1, 4)
-    deepset_dropout: Tuple[float, float] = (0.0, 0.3)
+    summary_dim: tuple[int, int] = (4, 16)
+    deepset_width: tuple[int, int] = (32, 128)
+    deepset_depth: tuple[int, int] = (1, 4)
+    deepset_dropout: tuple[float, float] = (0.0, 0.3)
 
     # CouplingFlow
-    flow_depth: Tuple[int, int] = (2, 8)
-    flow_hidden: Tuple[int, int] = (32, 128)
-    flow_dropout: Tuple[float, float] = (0.05, 0.3)
+    flow_depth: tuple[int, int] = (2, 8)
+    flow_hidden: tuple[int, int] = (32, 128)
+    flow_dropout: tuple[float, float] = (0.05, 0.3)
 
     # Training
-    initial_lr: Tuple[float, float] = (1e-4, 5e-3)
-    batch_size: Tuple[int, int] = (64, 1024)
+    initial_lr: tuple[float, float] = (1e-4, 5e-3)
+    batch_size: tuple[int, int] = (64, 1024)
 
     # Fixed values (not optimized)
     decay_rate: float = 0.85
@@ -262,7 +267,7 @@ class HyperparameterSpace:
 def sample_hyperparameters(
     trial: "Trial",
     space: HyperparameterSpace = None,
-) -> Dict[str, Any]:
+) -> dict[str, Any]:
     """
     Sample hyperparameters from search space using Optuna trial.
 
@@ -284,43 +289,54 @@ def sample_hyperparameters(
     params = {
         # DeepSet
         "summary_dim": trial.suggest_int(
-            "summary_dim", space.summary_dim[0], space.summary_dim[1],
+            "summary_dim",
+            space.summary_dim[0],
+            space.summary_dim[1],
         ),
         "deepset_width": trial.suggest_int(
             "deepset_width",
-            space.deepset_width[0], space.deepset_width[1],
+            space.deepset_width[0],
+            space.deepset_width[1],
             step=16,
         ),
         "deepset_depth": trial.suggest_int(
             "deepset_depth",
-            space.deepset_depth[0], space.deepset_depth[1],
+            space.deepset_depth[0],
+            space.deepset_depth[1],
         ),
         "deepset_dropout": trial.suggest_float(
             "deepset_dropout",
-            space.deepset_dropout[0], space.deepset_dropout[1],
+            space.deepset_dropout[0],
+            space.deepset_dropout[1],
         ),
         # CouplingFlow
         "flow_depth": trial.suggest_int(
-            "flow_depth", space.flow_depth[0], space.flow_depth[1],
+            "flow_depth",
+            space.flow_depth[0],
+            space.flow_depth[1],
         ),
         "flow_hidden": trial.suggest_int(
             "flow_hidden",
-            space.flow_hidden[0], space.flow_hidden[1],
+            space.flow_hidden[0],
+            space.flow_hidden[1],
             step=16,
         ),
         "flow_dropout": trial.suggest_float(
             "flow_dropout",
-            space.flow_dropout[0], space.flow_dropout[1],
+            space.flow_dropout[0],
+            space.flow_dropout[1],
         ),
         # Training
         "initial_lr": trial.suggest_float(
             "initial_lr",
-            space.initial_lr[0], space.initial_lr[1],
+            space.initial_lr[0],
+            space.initial_lr[1],
             log=True,
         ),
         "batch_size": trial.suggest_int(
             "batch_size",
-            space.batch_size[0], space.batch_size[1],
+            space.batch_size[0],
+            space.batch_size[1],
             step=64,
         ),
         # Fixed
@@ -336,6 +352,7 @@ def sample_hyperparameters(
 # GPU MEMORY CLEANUP
 # =============================================================================
 
+
 def cleanup_trial() -> None:
     """
     Clean up GPU memory after a trial completes.
@@ -346,6 +363,7 @@ def cleanup_trial() -> None:
 
     try:
         import torch
+
         if torch.cuda.is_available():
             torch.cuda.empty_cache()
             torch.cuda.synchronize()
@@ -354,6 +372,7 @@ def cleanup_trial() -> None:
 
     try:
         import tensorflow as tf
+
         tf.keras.backend.clear_session()
     except (ImportError, AttributeError):
         pass
@@ -363,16 +382,15 @@ def cleanup_trial() -> None:
 # MAIN OPTIMIZATION RUNNER
 # =============================================================================
 
+
 def run_optimization(
-    objective_fn: Callable[
-        ["Trial"], Union[float, Tuple[float, float]]
-    ],
+    objective_fn: Callable[["Trial"], float | tuple[float, float]],
     n_trials: int = 50,
     study_name: str = "npe_optimization",
-    directions: List[str] = None,
-    storage: Optional[str] = None,
+    directions: list[str] = None,
+    storage: str | None = None,
     n_jobs: int = 1,
-    timeout: Optional[float] = None,
+    timeout: float | None = None,
     show_progress_bar: bool = True,
 ) -> "optuna.Study":
     """
@@ -437,16 +455,17 @@ def run_optimization(
 # GENERIC OBJECTIVE FUNCTION BUILDER
 # =============================================================================
 
+
 def create_optimization_objective(
     config: Any,
     simulator: Any,
     adapter: Any,
     search_space: HyperparameterSpace,
-    validation_conditions: List[Dict],
-    inference_conditions: List[str],
+    validation_conditions: list[dict],
+    inference_conditions: list[str],
     param_key: str,
-    data_keys: List[str],
-    context_keys: Dict[str, type],
+    data_keys: list[str],
+    context_keys: dict[str, type],
     true_param_key: str,
     simulate_fn_factory: Callable,
     n_sims: int = 500,
@@ -503,7 +522,7 @@ def create_optimization_objective(
 
     Examples
     --------
-    >>> from rctbp_bf_training.core.optimization import (
+    >>> from bayesflow_rct.core.optimization import (
     ...     create_optimization_objective,
     ... )
     >>>
@@ -527,20 +546,21 @@ def create_optimization_objective(
     ...         n_post_draws=500,
     ...     )
     """
-    from rctbp_bf_training.core.infrastructure import (
-        params_dict_to_workflow_config,
-        build_summary_network,
-        build_inference_network,
-        configure_training_performance,
-        compile_approximator,
-        generate_validation_data,
-    )
-    from rctbp_bf_training.core.validation import (
-        run_validation_pipeline,
-        make_bayesflow_infer_fn,
-    )
-    from rctbp_bf_training.core.utils import MovingAverageEarlyStopping
     import bayesflow as bf
+
+    from bayesflow_rct.core.infrastructure import (
+        build_inference_network,
+        build_summary_network,
+        compile_approximator,
+        configure_training_performance,
+        generate_validation_data,
+        params_dict_to_workflow_config,
+    )
+    from bayesflow_rct.core.utils import MovingAverageEarlyStopping
+    from bayesflow_rct.core.validation import (
+        make_bayesflow_infer_fn,
+        run_validation_pipeline,
+    )
 
     if rng is None:
         rng = np.random.default_rng()
@@ -555,7 +575,7 @@ def create_optimization_objective(
         simulator, config.workflow.training.validation_sims
     )
 
-    def objective(trial: "Trial") -> Tuple[float, float]:
+    def objective(trial: "Trial") -> tuple[float, float]:
         """Optuna objective: returns (calibration_error, param_count)."""
         import keras as _keras
 
@@ -587,12 +607,8 @@ def create_optimization_objective(
         # Apply performance optimizations (mixed precision, etc.)
         configure_training_performance(config.workflow.training)
 
-        summary_net = build_summary_network(
-            workflow_config.summary_network
-        )
-        inference_net = build_inference_network(
-            workflow_config.inference_network
-        )
+        summary_net = build_summary_network(workflow_config.summary_network)
+        inference_net = build_inference_network(workflow_config.inference_network)
 
         # Setup learning rate schedule
         # Use actual batches_per_epoch so decay rate is consistent
@@ -638,9 +654,7 @@ def create_optimization_objective(
             wf.fit_online(
                 epochs=config.workflow.training.epochs,
                 batch_size=params["batch_size"],
-                num_batches_per_epoch=(
-                    config.workflow.training.batches_per_epoch
-                ),
+                num_batches_per_epoch=(config.workflow.training.batches_per_epoch),
                 validation_data=cached_validation_data,
                 callbacks=[
                     early_stop,
@@ -674,7 +688,8 @@ def create_optimization_objective(
                 verbose=False,
             )
             cal_error, normalized_params = extract_objective_values(
-                results["metrics"], param_count,
+                results["metrics"],
+                param_count,
             )
         except Exception as e:
             print(f"Trial {trial.number} validation FAILED: {e}")
@@ -701,29 +716,28 @@ def create_optimization_objective(
 # BACKWARD COMPATIBILITY: Re-export from split modules
 # =============================================================================
 # These imports ensure that code using
-#   from rctbp_bf_training.core.optimization import X
+#   from bayesflow_rct.core.optimization import X
 # continues to work after the module split.
 
-from rctbp_bf_training.core.objectives import (  # noqa: F401, E402
+from bayesflow_rct.core.dashboard import (  # noqa: F401, E402
+    launch_dashboard,
+)
+from bayesflow_rct.core.objectives import (  # noqa: F401, E402
     PARAM_COUNT_LOG_SCALE,
     compute_composite_objective,
     denormalize_param_count,
-    estimate_param_count,
     normalize_param_count,
 )
-from rctbp_bf_training.core.results import (  # noqa: F401, E402
+from bayesflow_rct.core.results import (  # noqa: F401, E402
     get_pareto_trials,
-    trials_to_dataframe,
-    summarize_best_trials,
     plot_optimization_results,
     plot_pareto_front,
+    summarize_best_trials,
+    trials_to_dataframe,
 )
-from rctbp_bf_training.core.threshold import (  # noqa: F401, E402
+from bayesflow_rct.core.threshold import (  # noqa: F401, E402
     QualityThresholds,
     check_thresholds,
-    train_until_threshold,
     create_strict_validation_grid,
-)
-from rctbp_bf_training.core.dashboard import (  # noqa: F401, E402
-    launch_dashboard,
+    train_until_threshold,
 )

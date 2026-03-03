@@ -41,7 +41,7 @@ pip install -e ".[dev,notebooks]"            # Editable install with dev tools
 # Testing
 pytest                                       # Run all tests
 pytest tests/test_core                       # Run core tests only
-pytest -v --cov=rctbp_bf_training            # Verbose with coverage
+pytest -v --cov=bayesflow_rct            # Verbose with coverage
 
 # Code quality
 ruff check src/                              # Linting
@@ -61,8 +61,8 @@ docker compose --profile cpu up npe-training-cpu  # Run CPU (Jupyter at :8889)
 ## Project Structure
 
 ```
-rctbp_bf_training/
-├── src/rctbp_bf_training/              # Main package
+bayesflow-rct/
+├── src/bayesflow_rct/              # Main package
 │   ├── core/                           # Generic NPE infrastructure
 │   │   ├── infrastructure.py           # Network configs, builders, workflow creation
 │   │   ├── optimization.py             # Optuna multi-objective optimization

@@ -12,25 +12,23 @@ This infrastructure can be reused across different models by providing
 model-specific simulator functions and adapter specifications.
 """
 
-from dataclasses import dataclass, field, asdict
+import json
+from collections.abc import Callable
+from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from pathlib import Path
-from typing import Callable, List, Dict, Tuple, Optional
-import json
 
-import numpy as np
 import bayesflow as bf
+import numpy as np
 from bayesflow.adapters.transforms.transform import Transform
-
 from bayesflow.utils.serialization import serializable, serialize
-
 
 # =============================================================================
 # Per-Sample Prior Standardization Transform
 # =============================================================================
 
 
-@serializable("rctbp_bf_training.core")
+@serializable("bayesflow_rct.core")
 class PriorStandardize(Transform):
     """
     Standardize an inference variable by its per-sample prior location and scale.
@@ -65,21 +63,23 @@ class PriorStandardize(Transform):
         self,
         param_key: str,
         scale_key: str,
-        loc_key: Optional[str] = None,
+        loc_key: str | None = None,
     ):
         super().__init__()
         self.param_key = param_key
         self.scale_key = scale_key
         self.loc_key = loc_key
-        self._cached_scales: Optional[np.ndarray] = None
-        self._cached_locs: Optional[np.ndarray] = None
+        self._cached_scales: np.ndarray | None = None
+        self._cached_locs: np.ndarray | None = None
 
     def get_config(self) -> dict:
-        return serialize({
-            "param_key": self.param_key,
-            "scale_key": self.scale_key,
-            "loc_key": self.loc_key,
-        })
+        return serialize(
+            {
+                "param_key": self.param_key,
+                "scale_key": self.scale_key,
+                "loc_key": self.loc_key,
+            }
+        )
 
     def extra_repr(self) -> str:
         parts = f"param={self.param_key!r}, scale={self.scale_key!r}"
@@ -99,10 +99,10 @@ class PriorStandardize(Transform):
     def _resolve(
         self,
         data: dict[str, np.ndarray],
-        key: Optional[str],
-        cache: Optional[np.ndarray],
+        key: str | None,
+        cache: np.ndarray | None,
         default: float,
-    ) -> Optional[np.ndarray]:
+    ) -> np.ndarray | None:
         """Return live value > cached value > scalar default."""
         if key is not None and key in data:
             return np.asarray(data[key])
@@ -159,6 +159,7 @@ class PriorStandardize(Transform):
 # Decoupled Network Configurations
 # =============================================================================
 
+
 @dataclass
 class SummaryNetworkConfig:
     """
@@ -181,6 +182,7 @@ class SummaryNetworkConfig:
         Type of summary network architecture (default: "DeepSet").
         Future options: "Transformer", "GRU", etc.
     """
+
     summary_dim: int = 10
     depth: int = 3
     width: int = 64
@@ -216,15 +218,16 @@ class InferenceNetworkConfig:
         (FlowMatching only, default: False). Improves sample quality at
         ~2.5x training cost.
     """
+
     network_type: str = "FlowMatching"
     # CouplingFlow-specific
     depth: int = 7
-    hidden_sizes: Tuple[int, ...] = (128, 128)
+    hidden_sizes: tuple[int, ...] = (128, 128)
     # FlowMatching-specific
-    widths: Tuple[int, ...] = (128, 128, 128)
+    widths: tuple[int, ...] = (128, 128, 128)
     time_embedding_dim: int = 8
     use_optimal_transport: bool = False
-    
+
     # Shared
     dropout: float = 0.1
 
@@ -259,6 +262,7 @@ class TrainingConfig:
         Compile the model with ``torch.compile()`` for fused operations.
         Gives ~10-30% speedup on PyTorch 2.x (default: False).
     """
+
     initial_lr: float = 7e-4
     decay_rate: float = 0.85
     batch_size: int = 320
@@ -288,8 +292,11 @@ class WorkflowConfig:
     training : TrainingConfig
         Training hyperparameters.
     """
+
     summary_network: SummaryNetworkConfig = field(default_factory=SummaryNetworkConfig)
-    inference_network: InferenceNetworkConfig = field(default_factory=InferenceNetworkConfig)
+    inference_network: InferenceNetworkConfig = field(
+        default_factory=InferenceNetworkConfig
+    )
     training: TrainingConfig = field(default_factory=TrainingConfig)
 
     def to_dict(self) -> dict:
@@ -313,6 +320,7 @@ class WorkflowConfig:
 # =============================================================================
 # Flexible Adapter Builder
 # =============================================================================
+
 
 @dataclass
 class AdapterSpec:
@@ -354,13 +362,16 @@ class AdapterSpec:
     output_dtype : str
         Output data type (default: "float32").
     """
-    set_keys: List[str]
-    param_keys: List[str]
-    context_keys: List[str]
-    standardize_keys: List[str] = field(default_factory=list)
-    prior_standardize: Dict[str, Tuple[Optional[str], str]] = field(default_factory=dict)
-    broadcast_specs: Dict[str, str] = field(default_factory=dict)
-    context_transforms: Dict[str, Tuple[Callable, Callable]] = field(default_factory=dict)
+
+    set_keys: list[str]
+    param_keys: list[str]
+    context_keys: list[str]
+    standardize_keys: list[str] = field(default_factory=list)
+    prior_standardize: dict[str, tuple[str | None, str]] = field(default_factory=dict)
+    broadcast_specs: dict[str, str] = field(default_factory=dict)
+    context_transforms: dict[str, tuple[Callable, Callable]] = field(
+        default_factory=dict
+    )
     output_dtype: str = "float32"
 
 
@@ -430,16 +441,22 @@ def create_adapter(spec: AdapterSpec) -> bf.Adapter:
 
     # Rename parameters to inference_variables
     if len(spec.param_keys) == 1:
-        adapter = adapter.rename(from_key=spec.param_keys[0], to_key="inference_variables")
+        adapter = adapter.rename(
+            from_key=spec.param_keys[0], to_key="inference_variables"
+        )
     else:
         # Multi-parameter case: concatenate
-        adapter = adapter.concatenate(spec.param_keys, into="inference_variables", axis=-1)
+        adapter = adapter.concatenate(
+            spec.param_keys, into="inference_variables", axis=-1
+        )
 
     # Concatenate data into summary_variables
     adapter = adapter.concatenate(spec.set_keys, into="summary_variables", axis=-1)
 
     # Concatenate context into inference_conditions
-    adapter = adapter.concatenate(spec.context_keys, into="inference_conditions", axis=-1)
+    adapter = adapter.concatenate(
+        spec.context_keys, into="inference_conditions", axis=-1
+    )
 
     return adapter
 
@@ -447,6 +464,7 @@ def create_adapter(spec: AdapterSpec) -> bf.Adapter:
 # =============================================================================
 # Decoupled Network Builders
 # =============================================================================
+
 
 def build_summary_network(config: SummaryNetworkConfig):
     """
@@ -541,7 +559,7 @@ def build_workflow(
     summary_network_config: SummaryNetworkConfig,
     inference_network_config: InferenceNetworkConfig,
     adapter_spec: AdapterSpec,
-) -> Tuple:
+) -> tuple:
     """
     Build complete workflow components: summary_net, inference_net, adapter.
 
@@ -582,10 +600,11 @@ def build_workflow(
 # Generic Simulator Factory
 # =============================================================================
 
+
 def create_simulator(
     prior_fn: Callable,
     likelihood_fn: Callable,
-    meta_fn: Optional[Callable] = None,
+    meta_fn: Callable | None = None,
 ) -> bf.simulators.Simulator:
     """
     Generic simulator factory.
@@ -622,21 +641,19 @@ def create_simulator(
     >>>
     >>> simulator = create_simulator(my_prior, my_likelihood)
     """
-    return bf.simulators.make_simulator(
-        [prior_fn, likelihood_fn],
-        meta_fn=meta_fn
-    )
+    return bf.simulators.make_simulator([prior_fn, likelihood_fn], meta_fn=meta_fn)
 
 
 # =============================================================================
 # Metadata Utilities
 # =============================================================================
 
+
 def get_workflow_metadata(
     config: WorkflowConfig,
     model_type: str,
-    validation_results: Optional[dict] = None,
-    extra: Optional[dict] = None,
+    validation_results: dict | None = None,
+    extra: dict | None = None,
 ) -> dict:
     """
     Collect reproducibility metadata for workflow.
@@ -738,7 +755,7 @@ def save_workflow_with_metadata(
     return keras_path
 
 
-def load_workflow_with_metadata(path: str | Path) -> Tuple:
+def load_workflow_with_metadata(path: str | Path) -> tuple:
     """
     Load model and metadata from disk.
 
@@ -782,6 +799,7 @@ def load_workflow_with_metadata(path: str | Path) -> Tuple:
 # Performance Configuration
 # =============================================================================
 
+
 def configure_training_performance(config: TrainingConfig) -> None:
     """
     Apply performance optimizations based on TrainingConfig flags.
@@ -808,8 +826,10 @@ def configure_training_performance(config: TrainingConfig) -> None:
     """
     if config.use_mixed_precision:
         import keras
+
         try:
             import torch
+
             has_cuda = torch.cuda.is_available()
         except ImportError:
             has_cuda = False
@@ -818,6 +838,7 @@ def configure_training_performance(config: TrainingConfig) -> None:
             keras.mixed_precision.set_global_policy("mixed_float16")
         else:
             import warnings
+
             warnings.warn(
                 "Mixed precision requested but no CUDA GPU detected. "
                 "Skipping — mixed_float16 requires GPU with Tensor Cores.",
@@ -825,8 +846,9 @@ def configure_training_performance(config: TrainingConfig) -> None:
             )
 
 
-def compile_approximator(approximator: "bf.approximators.Approximator",
-                         config: TrainingConfig) -> "bf.approximators.Approximator":
+def compile_approximator(
+    approximator: "bf.approximators.Approximator", config: TrainingConfig
+) -> "bf.approximators.Approximator":
     """
     Optionally apply ``torch.compile()`` to the approximator.
 
@@ -856,12 +878,12 @@ def compile_approximator(approximator: "bf.approximators.Approximator",
 
     try:
         import torch
+
         if hasattr(torch, "compile"):
-            approximator = torch.compile(
-                approximator, mode="reduce-overhead"
-            )
+            approximator = torch.compile(approximator, mode="reduce-overhead")
         else:
             import warnings
+
             warnings.warn(
                 "torch.compile requested but PyTorch < 2.0 detected. "
                 "Skipping compilation.",
@@ -869,6 +891,7 @@ def compile_approximator(approximator: "bf.approximators.Approximator",
             )
     except Exception as e:
         import warnings
+
         warnings.warn(
             f"torch.compile failed, falling back to eager mode: {e}",
             stacklevel=2,
@@ -920,6 +943,7 @@ def generate_validation_data(
 # =============================================================================
 # Hyperparameter Conversion for Bayesian Optimization
 # =============================================================================
+
 
 def params_dict_to_workflow_config(params: dict) -> WorkflowConfig:
     """

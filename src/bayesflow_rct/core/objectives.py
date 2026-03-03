@@ -8,7 +8,7 @@ Functions here are pure computation with no training/Optuna dependencies.
 """
 
 import importlib.util
-from typing import Any, Dict, Optional, Tuple
+from typing import Any
 
 import numpy as np
 
@@ -31,6 +31,7 @@ FAILED_TRIAL_PARAM_SCORE = 1.5  # Above any valid normalized value
 # =============================================================================
 # PARAMETER COUNT
 # =============================================================================
+
 
 def get_param_count(model: Any) -> int:
     """
@@ -57,13 +58,13 @@ def get_param_count(model: Any) -> int:
         raise ImportError("Keras is required for parameter counting")
 
     # Handle BayesFlow approximator wrapper
-    if hasattr(model, 'count_params'):
+    if hasattr(model, "count_params"):
         try:
             return int(model.count_params())
         except ValueError:
             # Model not built yet - return -1 to indicate deferred counting
             return -1
-    elif hasattr(model, 'trainable_weights'):
+    elif hasattr(model, "trainable_weights"):
         if len(model.trainable_weights) == 0:
             return -1  # Model not built
         return sum(np.prod(w.shape) for w in model.trainable_weights)
@@ -110,7 +111,7 @@ def estimate_param_count(
     # DeepSet: 4 MLPs (equivariant, inner, outer, last) with depth layers
     # Each MLP: input->hidden->hidden->output
     # Rough estimate: 4 * depth * width^2
-    deepset_params = 4 * deepset_depth * (deepset_width ** 2)
+    deepset_params = 4 * deepset_depth * (deepset_width**2)
     deepset_params += deepset_width * summary_dim  # final projection
 
     # CouplingFlow: depth subnets
@@ -119,9 +120,9 @@ def estimate_param_count(
     # Each subnet: input->hidden->hidden->output (2 * ceil(n_params/2))
     subnet_output = 2 * max(1, (n_params + 1) // 2)
     subnet_params = (
-        subnet_input * flow_hidden +  # first layer
-        flow_hidden * flow_hidden +   # middle layer
-        flow_hidden * subnet_output   # output layer
+        subnet_input * flow_hidden  # first layer
+        + flow_hidden * flow_hidden  # middle layer
+        + flow_hidden * subnet_output  # output layer
     )
     flow_params = flow_depth * subnet_params
 
@@ -132,11 +133,12 @@ def estimate_param_count(
 # OBJECTIVE COMPUTATION
 # =============================================================================
 
+
 def compute_composite_objective(
-    metrics: Dict,
+    metrics: dict[str, Any],
     param_count: int,
     param_budget: int = 50_000,
-    weights: Optional[Dict[str, float]] = None,
+    weights: dict[str, float] | None = None,
 ) -> float:
     """
     Compute a single composite objective from multiple metrics.
@@ -174,9 +176,7 @@ def compute_composite_objective(
     sbc_deviation = abs(c2st - 0.5)
 
     # Size penalty (soft, logarithmic above budget)
-    size_penalty = max(
-        0, np.log1p(param_count / param_budget) - np.log1p(1)
-    )
+    size_penalty = max(0, np.log1p(param_count / param_budget) - np.log1p(1))
 
     composite = (
         weights["calibration"] * cal_error
@@ -190,6 +190,7 @@ def compute_composite_objective(
 # =============================================================================
 # OBJECTIVE NORMALIZATION
 # =============================================================================
+
 
 def normalize_param_count(param_count: int) -> float:
     """
@@ -212,7 +213,7 @@ def normalize_param_count(param_count: int) -> float:
     """
     if param_count <= 0:
         return 0.0
-    return np.log10(param_count) / PARAM_COUNT_LOG_SCALE
+    return float(np.log10(param_count) / PARAM_COUNT_LOG_SCALE)
 
 
 def denormalize_param_count(normalized: float) -> int:
@@ -235,9 +236,9 @@ def denormalize_param_count(normalized: float) -> int:
 
 
 def extract_objective_values(
-    metrics: Dict,
+    metrics: dict[str, Any],
     param_count: int,
-) -> Tuple[float, float]:
+) -> tuple[float, float]:
     """
     Extract objective values for multi-objective optimization.
 

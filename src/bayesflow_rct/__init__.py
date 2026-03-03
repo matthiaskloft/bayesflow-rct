@@ -1,47 +1,49 @@
 """RCT Bayesian Power Training using Neural Posterior Estimation."""
 
-__version__ = "0.1.0"
+from importlib.metadata import PackageNotFoundError, version
+
+try:
+    __version__ = version("bayesflow-rct")
+except PackageNotFoundError:
+    __version__ = "0.1.0"  # fallback for uninstalled (e.g. raw checkout)
 
 # Core infrastructure (generic, reusable)
-from rctbp_bf_training.core.infrastructure import (
-    SummaryNetworkConfig,
+from bayesflow_rct.core.infrastructure import (
+    AdapterSpec,
     InferenceNetworkConfig,
+    SummaryNetworkConfig,
     TrainingConfig,
     WorkflowConfig,
-    AdapterSpec,
-    build_summary_network,
     build_inference_network,
+    build_summary_network,
     build_workflow,
-    save_workflow_with_metadata,
     load_workflow_with_metadata,
+    save_workflow_with_metadata,
 )
-
-from rctbp_bf_training.core.optimization import (
-    create_study,
+from bayesflow_rct.core.optimization import (
     HyperparameterSpace,
     create_optimization_objective,
+    create_study,
 )
-
-from rctbp_bf_training.core.validation import (
+from bayesflow_rct.core.utils import (
+    loguniform_float,
+    loguniform_int,
+    sample_t_or_normal,
+)
+from bayesflow_rct.core.validation import (
     run_validation_pipeline,
 )
 
-from rctbp_bf_training.core.utils import (
-    loguniform_int,
-    loguniform_float,
-    sample_t_or_normal,
-)
-
 # ANCOVA model
-from rctbp_bf_training.models.ancova.model import (
+from bayesflow_rct.models.ancova.model import (
     ANCOVAConfig,
-    PriorConfig,
     MetaConfig,
+    PriorConfig,
     create_ancova_workflow_components,
 )
 
 # Plotting
-from rctbp_bf_training.plotting.diagnostics import (
+from bayesflow_rct.plotting.diagnostics import (
     plot_coverage_diff,
 )
 

@@ -1,6 +1,6 @@
 """Basic package tests."""
 
-from rctbp_bf_training import __version__
+from bayesflow_rct import __version__
 
 
 def test_version():

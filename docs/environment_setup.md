@@ -66,7 +66,7 @@ source venv/bin/activate
 ### Verify the Installation
 
 ```bash
-python -c "import rctbp_bf_training; import torch; print(f'Package version: {rctbp_bf_training.__version__}'); print(f'GPU available: {torch.cuda.is_available()}')"
+python -c "import bayesflow_rct; import torch; print(f'Package version: {bayesflow_rct.__version__}'); print(f'GPU available: {torch.cuda.is_available()}')"
 ```
 
 ### Using in Jupyter Notebooks
@@ -86,7 +86,7 @@ jupyter notebook examples/
 **Option 2: Use the kernel from any Jupyter instance**
 1. Start Jupyter from anywhere: `jupyter notebook`
 2. Open or create a notebook
-3. Select **Kernel → Change kernel → Python (rctbp_bf_training - venv)**
+3. Select **Kernel → Change kernel → Python (bayesflow_rct - venv)**
 
 **Troubleshooting:**
 - If the kernel doesn't appear, **restart Jupyter** (the kernel list is cached)
@@ -151,7 +151,7 @@ pip install -e ".[dev,notebooks]"
 Run the following command to verify the package is installed correctly:
 
 ```bash
-python -c "import rctbp_bf_training; print(rctbp_bf_training.__version__)"
+python -c "import bayesflow_rct; print(bayesflow_rct.__version__)"
 ```
 
 You should see:
@@ -162,7 +162,7 @@ You should see:
 ## Test the Public API
 
 ```python
-python -c "from rctbp_bf_training import ANCOVAConfig; print('Success!')"
+python -c "from bayesflow_rct import ANCOVAConfig; print('Success!')"
 ```
 
 ## Running Tests
