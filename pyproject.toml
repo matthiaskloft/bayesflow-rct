@@ -45,11 +45,11 @@ notebooks = [
     "ipykernel>=6.0",
     "notebook>=7.0",
 ]
-calibration = ["bayesflow-calibration-loss @ git+https://github.com/matthiaskloft/bayesflow_calibration_loss.git"]
+calibration = ["bayesflow-calibration-loss @ git+https://github.com/matthiaskloft/bayesflow-calibration-loss.git"]
 
 [project.urls]
-Homepage = "https://github.com/matthiaskloft/bayesflow_rct"
-Repository = "https://github.com/matthiaskloft/bayesflow_rct"
+Homepage = "https://github.com/matthiaskloft/bayesflow-rct"
+Repository = "https://github.com/matthiaskloft/bayesflow-rct"
 
 [tool.setuptools.packages.find]
 where = ["src"]
