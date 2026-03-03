@@ -78,3 +78,6 @@ dmypy.json
 
 # Optuna databases
 *.db
+
+# Local Claude tooling artifacts
+.claude/worktrees/
