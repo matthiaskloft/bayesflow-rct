@@ -3,12 +3,12 @@
 
 ## Purpose
 
-Python package for training Neural Posterior Estimation (NPE) models using BayesFlow for Randomized Controlled Trial (RCT) Bayesian power analysis. Implements ANCOVA models for 2-arm continuous outcome trials with Optuna-based multi-objective hyperparameter optimization (calibration error + model complexity).
+Python package for training Neural Posterior Estimation (NPE) models using BayesFlow for Randomized Controlled Trial (RCT) Bayesian power analysis. Implements ANCOVA models for 2-arm continuous outcome trials and composes generic HPO functionality from `bayesflow-hpo`.
 
 Key capabilities:
 - Train neural networks to approximate posterior distributions for RCT parameters
-- Multi-objective hyperparameter optimization via Optuna (Pareto front: calibration error vs param count)
-- Simulation-based calibration (SBC) validation
+- ANCOVA-specific HPO wrapper in `models/ancova/hpo.py` built on `bayesflow-hpo`
+- Simulation-based calibration (SBC) validation via `bayesflow-hpo.validation`
 - Docker-based deployment with GPU support (CUDA 12.x)
 
 
@@ -63,14 +63,14 @@ docker compose --profile cpu up npe-training-cpu  # Run CPU (Jupyter at :8889)
 ```
 bayesflow-rct/
 ├── src/bayesflow_rct/              # Main package
-│   ├── core/                           # Generic NPE infrastructure
-│   │   ├── infrastructure.py           # Network configs, builders, workflow creation
-│   │   ├── optimization.py             # Optuna multi-objective optimization
-│   │   ├── validation.py               # SBC validation pipeline
-│   │   └── utils.py                    # Sampling, distribution utilities
+│   ├── core/                           # RCT-specific infrastructure and utilities
+│   │   ├── infrastructure.py           # Slim: PriorStandardize re-export + create_simulator
+│   │   ├── threshold.py                # Threshold-based retraining loop
+│   │   └── utils.py                    # ANCOVA utility helpers
 │   ├── models/
 │   │   └── ancova/
-│   │       └── model.py                # ANCOVA simulators, priors, workflow factory
+│   │       └── model.py                # ANCOVA simulators, adapter spec, config shims, workflow factory
+│   │       └── hpo.py                  # Thin wrapper around bayesflow-hpo
 │   └── plotting/
 │       └── diagnostics.py              # SBC diagnostic plots
 │
@@ -102,13 +102,14 @@ bayesflow-rct/
 
 ### Key dependencies
 - `bayesflow>=2.0` - Neural posterior estimation framework
+- `bayesflow-hpo>=0.1.0` - Generic BayesFlow HPO/search-space/validation package
 - `keras>=3.9,<3.13` - Deep learning (backend: PyTorch)
 - `optuna>=3.0` - Bayesian hyperparameter optimization
 - `numpy`, `scipy`, `pandas`, `scikit-learn`, `matplotlib`
 
 ### Architecture patterns
-- **Generic core + model-specific implementations**: `core/` is model-agnostic; `models/ancova/` contains ANCOVA-specific code
-- **Configuration via dataclasses**: All configs use typed dataclasses with defaults
+- **Thin application layer**: generic HPO/validation/builders live in `bayesflow-hpo`; this repo keeps ANCOVA-specific simulation, adapter, and threshold logic
+- **Configuration via dataclasses**: ANCOVA-facing config shims remain in `models/ancova/model.py`; generic builders/config are provided by `bayesflow-hpo`
 - **Multi-objective optimization**: Optuna studies optimize (calibration_error, param_count) on a Pareto front
 - **External calibration loss**: `bayesflow-calibration-loss` ([bayesflow-calibration-loss](https://github.com/matthiaskloft/bayesflow-calibration-loss)) is a separate repo, installed via `pip install -e ".[calibration]"`
 

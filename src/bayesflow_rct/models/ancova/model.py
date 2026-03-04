@@ -8,31 +8,38 @@ This module provides ANCOVA-specific implementations:
 - Validation pipeline helpers
 - Model metadata utilities
 
-Generic infrastructure has been extracted to bayesflow_rct.core.infrastructure
+Generic network/adaptation infrastructure is provided by bayesflow_hpo.
+`bayesflow_rct.core.infrastructure` now only exposes a slim simulator helper.
 """
 
 from collections.abc import Callable
 from dataclasses import asdict, dataclass, field
+import time
 from typing import TYPE_CHECKING, Any
 
 import bayesflow as bf
+import bayesflow_hpo as hpo
 import numpy as np
+import pandas as pd
+from bayesflow_hpo.builders import (
+    AdapterSpec,
+    WorkflowBuildConfig,
+    build_inference_network,
+    build_summary_network,
+    build_workflow,
+    create_adapter,
+)
+from bayesflow_hpo.results import (
+    get_workflow_metadata,
+    load_workflow_with_metadata,
+    save_workflow_with_metadata,
+)
+from bayesflow_hpo.validation.inference import make_bayesflow_infer_fn as _make_bayesflow_infer_fn
+from bayesflow_hpo.validation.metrics import aggregate_metrics, compute_batch_metrics
 
 if TYPE_CHECKING:
     from bayesflow import Adapter, Simulator
 
-from bayesflow_rct.core.infrastructure import (
-    AdapterSpec,
-    InferenceNetworkConfig,
-    WorkflowConfig,
-    build_inference_network,
-    build_summary_network,
-    build_workflow,
-    get_workflow_metadata,
-    load_workflow_with_metadata,
-    params_dict_to_workflow_config,
-    save_workflow_with_metadata,
-)
 from bayesflow_rct.core.infrastructure import (
     create_simulator as create_generic_simulator,
 )
@@ -64,6 +71,159 @@ class MetaConfig:
     prior_df_alpha: float = 0.7  # Alpha for log-uniform sampling
     prior_scale_gamma_shape: float = 2.0
     prior_scale_gamma_scale: float = 1.0
+
+
+@dataclass
+class SummaryNetworkConfig:
+    """Thin summary-network config shim retained for ANCOVA ergonomics."""
+
+    summary_dim: int = 10
+    depth: int = 3
+    width: int = 64
+    dropout: float = 0.05
+    network_type: str = "DeepSet"
+
+
+@dataclass
+class InferenceNetworkConfig:
+    """Thin inference-network config shim retained for ANCOVA ergonomics."""
+
+    network_type: str = "FlowMatching"
+    depth: int = 7
+    hidden_sizes: tuple[int, ...] = (128, 128)
+    widths: tuple[int, ...] = (128, 128, 128)
+    use_optimal_transport: bool = False
+    dropout: float = 0.1
+
+
+@dataclass
+class TrainingConfig:
+    """Training hyperparameters used by ANCOVA wrappers."""
+
+    initial_lr: float = 7e-4
+    decay_rate: float = 0.85
+    batch_size: int = 320
+    epochs: int = 200
+    batches_per_epoch: int = 50
+    validation_sims: int = 1000
+    early_stopping_patience: int = 10
+    early_stopping_window: int = 5
+
+
+@dataclass
+class WorkflowConfig:
+    """ANCOVA-facing workflow config shim mapped to bayesflow_hpo builders."""
+
+    summary_network: SummaryNetworkConfig = field(default_factory=SummaryNetworkConfig)
+    inference_network: InferenceNetworkConfig = field(
+        default_factory=InferenceNetworkConfig
+    )
+    training: TrainingConfig = field(default_factory=TrainingConfig)
+
+    def to_dict(self) -> dict:
+        return {
+            "summary_network": asdict(self.summary_network),
+            "inference_network": asdict(self.inference_network),
+            "training": asdict(self.training),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict) -> "WorkflowConfig":
+        return cls(
+            summary_network=SummaryNetworkConfig(**d.get("summary_network", {})),
+            inference_network=InferenceNetworkConfig(**d.get("inference_network", {})),
+            training=TrainingConfig(**d.get("training", {})),
+        )
+
+
+def params_dict_to_workflow_config(params: dict[str, Any]) -> WorkflowConfig:
+    """Convert flat hyperparameter dict (e.g. from Optuna) to `WorkflowConfig`."""
+    network_type = params.get("network_type", "CouplingFlow")
+    flow_depth = int(params.get("flow_depth", 7))
+    flow_dropout = float(params.get("flow_dropout", 0.05))
+
+    if network_type == "FlowMatching":
+        flow_width = int(params.get("flow_width", 256))
+        inference_config = InferenceNetworkConfig(
+            network_type="FlowMatching",
+            widths=(flow_width,) * flow_depth,
+            dropout=flow_dropout,
+            use_optimal_transport=bool(params.get("use_optimal_transport", False)),
+        )
+    else:
+        flow_hidden = int(params.get("flow_hidden", 128))
+        inference_config = InferenceNetworkConfig(
+            network_type="CouplingFlow",
+            depth=flow_depth,
+            hidden_sizes=(flow_hidden,) * 2,
+            dropout=flow_dropout,
+        )
+
+    return WorkflowConfig(
+        summary_network=SummaryNetworkConfig(
+            summary_dim=int(params.get("summary_dim", 10)),
+            depth=int(params.get("deepset_depth", 3)),
+            width=int(params.get("deepset_width", 64)),
+            dropout=float(params.get("deepset_dropout", 0.05)),
+        ),
+        inference_network=inference_config,
+        training=TrainingConfig(
+            initial_lr=float(params.get("initial_lr", 7e-4)),
+            batch_size=int(params.get("batch_size", 320)),
+            decay_rate=float(params.get("decay_rate", 0.85)),
+            epochs=int(params.get("epochs", 200)),
+            batches_per_epoch=int(params.get("batches_per_epoch", 50)),
+            validation_sims=int(params.get("validation_sims", 1000)),
+            early_stopping_patience=int(params.get("early_stopping_patience", 10)),
+            early_stopping_window=int(params.get("early_stopping_window", 5)),
+        ),
+    )
+
+
+def _build_networks_from_workflow_config(
+    workflow_config: WorkflowConfig,
+) -> tuple[bf.networks.SummaryNetwork | None, bf.networks.InferenceNetwork]:
+    """Build summary/inference networks via `bayesflow_hpo.builders` from shim config."""
+    summary_space = hpo.DeepSetSpace()
+    summary_params: dict[str, Any] = {
+        "ds_summary_dim": int(workflow_config.summary_network.summary_dim),
+        "ds_depth": int(workflow_config.summary_network.depth),
+        "ds_width": int(workflow_config.summary_network.width),
+        "ds_dropout": float(workflow_config.summary_network.dropout),
+    }
+
+    inference_cfg = workflow_config.inference_network
+    if inference_cfg.network_type == "FlowMatching":
+        inference_space = hpo.FlowMatchingSpace()
+        fm_width = int(inference_cfg.widths[0]) if inference_cfg.widths else 128
+        inference_params = {
+            "fm_subnet_width": fm_width,
+            "fm_subnet_depth": int(len(inference_cfg.widths) or 3),
+            "fm_dropout": float(inference_cfg.dropout),
+            "fm_activation": "mish",
+            "fm_use_ot": bool(inference_cfg.use_optimal_transport),
+        }
+    elif inference_cfg.network_type == "CouplingFlow":
+        inference_space = hpo.CouplingFlowSpace()
+        cf_width = int(inference_cfg.hidden_sizes[0]) if inference_cfg.hidden_sizes else 128
+        inference_params = {
+            "cf_depth": int(inference_cfg.depth),
+            "cf_subnet_width": cf_width,
+            "cf_subnet_depth": int(len(inference_cfg.hidden_sizes) or 2),
+            "cf_dropout": float(inference_cfg.dropout),
+            "cf_activation": "silu",
+        }
+    else:
+        raise ValueError(f"Unknown inference network type: {inference_cfg.network_type}")
+
+    composite_space = hpo.CompositeSearchSpace(
+        inference_space=inference_space,
+        summary_space=summary_space,
+    )
+    params = {**summary_params, **inference_params}
+    summary_net = build_summary_network(params=params, search_space=composite_space)
+    inference_net = build_inference_network(params=params, search_space=composite_space)
+    return summary_net, inference_net
 
 
 def _default_ancova_workflow() -> WorkflowConfig:
@@ -386,13 +546,9 @@ def create_ancova_workflow_components(config: ANCOVAConfig) -> tuple:
     >>> config = ANCOVAConfig()
     >>> summary_net, inference_net, adapter = create_ancova_workflow_components(config)
     """
-    adapter_spec = get_ancova_adapter_spec()
-
-    return build_workflow(
-        summary_network_config=config.workflow.summary_network,
-        inference_network_config=config.workflow.inference_network,
-        adapter_spec=adapter_spec,
-    )
+    summary_net, inference_net = _build_networks_from_workflow_config(config.workflow)
+    adapter = create_adapter(get_ancova_adapter_spec())
+    return summary_net, inference_net, adapter
 
 
 def create_prior_fn(config: ANCOVAConfig, rng: np.random.Generator) -> Callable:
@@ -456,7 +612,7 @@ def create_ancova_adapter() -> "Adapter":
     This is a convenience wrapper that creates an adapter using the
     ANCOVA adapter specification. It's equivalent to:
 
-        from bayesflow_rct.core.infrastructure import create_adapter
+        from bayesflow_hpo.builders import create_adapter
         adapter = create_adapter(get_ancova_adapter_spec())
 
     Returns
@@ -468,8 +624,6 @@ def create_ancova_adapter() -> "Adapter":
     >>> adapter = create_ancova_adapter()
     >>> processed = adapter(simulator.sample(100))
     """
-    from bayesflow_rct.core.infrastructure import create_adapter
-
     return create_adapter(get_ancova_adapter_spec())
 
 
@@ -486,7 +640,7 @@ def create_ancova_objective(
     """
     Create Optuna objective function for ANCOVA model optimization.
 
-    This is a lightweight wrapper around the generic `create_optimization_objective`
+    This is a lightweight wrapper around `bayesflow_hpo.GenericObjective`
     that provides ANCOVA-specific parameter keys and inference conditions.
 
     Parameters
@@ -497,7 +651,7 @@ def create_ancova_objective(
         BayesFlow simulator for the ANCOVA model
     adapter : Adapter
         BayesFlow adapter for data transformation
-    search_space : HyperparameterSpace
+    search_space : bayesflow_hpo.CompositeSearchSpace
         Search space for hyperparameter sampling
     validation_conditions : list of dict
         Conditions grid for validation (from create_validation_grid)
@@ -510,16 +664,16 @@ def create_ancova_objective(
 
     Returns
     -------
-    objective : Callable[[Trial], Tuple[float, int]]
+    objective : Callable[[Trial], Tuple[float, float]]
         Objective function that takes an Optuna trial and returns
-        (calibration_error, parameter_count)
+        (calibration_error, parameter_score)
 
     Examples
     --------
     >>> config = ANCOVAConfig()
     >>> simulator = create_simulator(config, RNG)
     >>> adapter = create_ancova_adapter()
-    >>> search_space = HyperparameterSpace(summary_dim=(4, 16), ...)
+    >>> search_space = hpo.CompositeSearchSpace(...)
     >>> conditions = create_validation_grid(extended=False)
     >>>
     >>> objective = create_ancova_objective(
@@ -527,30 +681,30 @@ def create_ancova_objective(
     ... )
     >>> study.optimize(objective, n_trials=30)
     """
-    from bayesflow_rct.core.optimization import create_optimization_objective
+    if not isinstance(search_space, hpo.CompositeSearchSpace):
+        raise TypeError(
+            "search_space must be a bayesflow_hpo.CompositeSearchSpace instance."
+        )
 
-    return create_optimization_objective(
-        config=config,
+    validation_data = _build_validation_dataset_from_conditions(
+        validation_conditions=validation_conditions,
+        n_sims=n_sims,
+        rng=rng,
+    )
+
+    objective_config = hpo.ObjectiveConfig(
         simulator=simulator,
         adapter=adapter,
         search_space=search_space,
-        validation_conditions=validation_conditions,
-        # ANCOVA-specific configuration
         inference_conditions=["N", "p_alloc", "prior_df", "prior_scale"],
-        param_key="b_group",
-        data_keys=["outcome", "covariate", "group"],
-        context_keys={
-            "N": int,
-            "p_alloc": float,
-            "prior_df": float,
-            "prior_scale": float,
-        },
-        true_param_key="b_arm_treat",
-        simulate_fn_factory=make_simulate_fn,
-        n_sims=n_sims,
-        n_post_draws=n_post_draws,
-        rng=rng,
+        validation_data=validation_data,
+        epochs=int(config.workflow.training.epochs),
+        batches_per_epoch=int(config.workflow.training.batches_per_epoch),
+        early_stopping_patience=int(config.workflow.training.early_stopping_patience),
+        early_stopping_window=int(config.workflow.training.early_stopping_window),
+        n_posterior_samples=int(n_post_draws),
     )
+    return hpo.GenericObjective(objective_config)
 
 
 # =============================================================================
@@ -609,36 +763,33 @@ def create_ancova_training_functions(
     ...     thresholds=QualityThresholds(),
     ... )
     """
-    import keras
-
-    from bayesflow_rct.core.utils import MovingAverageEarlyStopping
-    from bayesflow_rct.core.validation import (
-        make_bayesflow_infer_fn,
-        run_validation_pipeline,
+    validation_data = _build_validation_dataset_from_conditions(
+        validation_conditions=validation_conditions,
+        n_sims=1000,
+        rng=rng,
     )
 
     def build_workflow_fn(params):
         """Build a fresh workflow from hyperparameters."""
         workflow_config = params_dict_to_workflow_config(params)
-        summary_net = build_summary_network(workflow_config.summary_network)
-        inference_net = build_inference_network(workflow_config.inference_network)
-
-        steps_per_epoch = params["batch_size"] * 50
-        lr_schedule = keras.optimizers.schedules.ExponentialDecay(
-            initial_learning_rate=params["initial_lr"],
-            decay_steps=steps_per_epoch,
-            decay_rate=params.get("decay_rate", 0.85),
-            staircase=True,
+        summary_net, inference_net = _build_networks_from_workflow_config(
+            workflow_config
         )
-        opt = keras.optimizers.Adam(learning_rate=lr_schedule)
 
-        return bf.BasicWorkflow(
+        return build_workflow(
             simulator=simulator,
             adapter=adapter,
             inference_network=inference_net,
             summary_network=summary_net,
-            optimizer=opt,
-            inference_conditions=["N", "p_alloc", "prior_df", "prior_scale"],
+            params={
+                "batch_size": int(params["batch_size"]),
+                "initial_lr": float(params["initial_lr"]),
+                "decay_rate": float(params.get("decay_rate", 0.85)),
+            },
+            config=WorkflowBuildConfig(
+                inference_conditions=["N", "p_alloc", "prior_df", "prior_scale"],
+                checkpoint_name="ancova_threshold_workflow",
+            ),
         )
 
     def train_fn(workflow):
@@ -649,7 +800,7 @@ def create_ancova_training_functions(
         except Exception:
             pass  # Already compiled
 
-        early_stop = MovingAverageEarlyStopping(
+        early_stop = hpo.MovingAverageEarlyStopping(
             window=10, patience=10, restore_best_weights=True
         )
         return workflow.fit_online(
@@ -662,27 +813,10 @@ def create_ancova_training_functions(
 
     def validate_fn(workflow):
         """Validate the workflow on the strict grid."""
-        simulate_fn = make_simulate_fn(rng=rng)
-        infer_fn = make_bayesflow_infer_fn(
-            workflow.approximator,
-            param_key="b_group",
-            data_keys=["outcome", "covariate", "group"],
-            context_keys={
-                "N": int,
-                "p_alloc": float,
-                "prior_df": float,
-                "prior_scale": float,
-            },
-        )
-
-        results = run_validation_pipeline(
-            conditions_list=validation_conditions,
-            n_sims=1000,
-            n_post_draws=1000,
-            simulate_fn=simulate_fn,
-            infer_fn=infer_fn,
-            true_param_key="b_arm_treat",
-            verbose=False,
+        results = hpo.run_validation_pipeline(
+            approximator=workflow.approximator,
+            validation_data=validation_data,
+            n_posterior_samples=1000,
         )
         return results["metrics"]
 
@@ -812,18 +946,105 @@ def make_infer_fn(approximator) -> Callable:
     -------
     callable: infer_fn(data, n_samples) -> np.ndarray
     """
-    from bayesflow_rct.core.validation import make_bayesflow_infer_fn
-
-    return make_bayesflow_infer_fn(
-        approximator,
-        param_key="b_group",
+    return _make_bayesflow_infer_fn(
+        approximator=approximator,
+        param_keys=["b_group"],
         data_keys=["outcome", "covariate", "group"],
-        context_keys={
-            "N": int,
-            "p_alloc": float,
-            "prior_df": float,
-            "prior_scale": float,
-        },
+    )
+
+
+def make_condition_infer_fn(
+    approximator,
+    param_key: str = "b_group",
+    data_keys: list[str] | None = None,
+) -> Callable:
+    """Create an inference callable for ANCOVA condition-grid validation."""
+    if data_keys is None:
+        data_keys = ["outcome", "covariate", "group"]
+
+    return _make_bayesflow_infer_fn(
+        approximator=approximator,
+        param_keys=[param_key],
+        data_keys=data_keys,
+    )
+
+
+def run_condition_grid_validation(
+    conditions_list: list[dict],
+    n_sims: int,
+    n_post_draws: int,
+    simulate_fn: Callable,
+    infer_fn: Callable,
+    true_param_key: str,
+    coverage_levels: list[float] | None = None,
+    verbose: bool = False,
+) -> dict[str, Any]:
+    """Run ANCOVA condition-grid validation with simulation/inference callables."""
+    if coverage_levels is None:
+        coverage_levels = [0.5, 0.8, 0.9, 0.95, 0.99]
+
+    timing = {"simulation": 0.0, "inference": 0.0, "metrics": 0.0}
+    all_metrics: list[pd.DataFrame] = []
+    sim_counter = 0
+
+    for cond_id, condition in enumerate(conditions_list):
+        t0 = time.time()
+        sim_data = simulate_fn(condition, n_sims)
+        timing["simulation"] += time.time() - t0
+
+        t1 = time.time()
+        draws = infer_fn(sim_data, n_post_draws)
+        timing["inference"] += time.time() - t1
+
+        if draws.ndim == 3 and draws.shape[-1] == 1:
+            draws = np.squeeze(draws, axis=-1)
+
+        true_values = np.asarray(sim_data[true_param_key]).reshape(-1)
+
+        t2 = time.time()
+        batch_metrics = compute_batch_metrics(
+            draws=np.asarray(draws),
+            true_values=true_values,
+            cond_id=cond_id,
+            sim_id_start=sim_counter,
+            coverage_levels=coverage_levels,
+        )
+        timing["metrics"] += time.time() - t2
+
+        all_metrics.append(batch_metrics)
+        sim_counter += int(true_values.shape[0])
+
+        if verbose:
+            print(f"Condition {cond_id + 1}/{len(conditions_list)} done")
+
+    sim_metrics = pd.concat(all_metrics, ignore_index=True)
+    metrics = aggregate_metrics(
+        sim_metrics=sim_metrics,
+        coverage_levels=coverage_levels,
+        n_posterior_samples=n_post_draws,
+    )
+
+    return {
+        "sim_metrics": sim_metrics,
+        "metrics": metrics,
+        "timing": timing,
+    }
+
+
+def _build_validation_dataset_from_conditions(
+    validation_conditions: list[dict],
+    n_sims: int,
+    rng: np.random.Generator | None,
+) -> hpo.ValidationDataset:
+    """Build fixed validation dataset for ANCOVA condition grids."""
+    simulate_fn = make_simulate_fn(rng=rng)
+    simulations = [simulate_fn(condition, n_sims=n_sims) for condition in validation_conditions]
+    return hpo.ValidationDataset(
+        simulations=simulations,
+        condition_labels=validation_conditions,
+        param_keys=["b_group"],
+        data_keys=["outcome", "covariate", "group"],
+        seed=42,
     )
 
 
@@ -854,7 +1075,7 @@ def get_model_metadata(
     dict with complete metadata
     """
     return get_workflow_metadata(
-        config=config.workflow,
+        config=config.workflow.to_dict(),
         model_type="ancova_cont_2arms",
         validation_results=validation_results,
         extra={

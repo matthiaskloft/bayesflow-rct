@@ -29,6 +29,7 @@ dependencies = [
     "matplotlib",
     "tqdm",
     "bayesflow>=2.0",
+    "bayesflow-hpo>=0.1.0",
     "keras>=3.9,<3.13",  # Pin to <3.13 for BayesFlow 2.0.7 compatibility (bug in 3.13+)
     "optuna>=3.0",
 ]
@@ -68,7 +69,6 @@ select = ["E", "F", "I", "N", "W", "UP"]
 [tool.ruff.lint.per-file-ignores]
 "src/bayesflow_rct/**/*.py" = ["N999"]
 "src/bayesflow_rct/core/infrastructure.py" = ["E501"]
-"src/bayesflow_rct/core/validation.py" = ["E501"]
 "src/bayesflow_rct/plotting/diagnostics.py" = ["E501"]
 
 [tool.mypy]
@@ -80,16 +80,10 @@ strict = true
 [[tool.mypy.overrides]]
 module = [
     "bayesflow_rct.plotting.*",
-    "bayesflow_rct.core.validation",
     "bayesflow_rct.core.threshold",
     "bayesflow_rct.core.utils",
     "bayesflow_rct.core.infrastructure",
-    "bayesflow_rct.core.optimization",
     "bayesflow_rct.models.ancova.model",
     "bayesflow_rct.core.dashboard",
 ]
 ignore_errors = true
-
-[[tool.mypy.overrides]]
-module = ["bayesflow_rct.core.results"]
-disable_error_code = ["import-untyped"]

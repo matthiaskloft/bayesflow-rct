@@ -5,8 +5,7 @@ import pytest
 
 os.environ.setdefault("KERAS_BACKEND", "torch")
 
-from bayesflow_rct.core.infrastructure import InferenceNetworkConfig
-from bayesflow_rct.models.ancova.model import ANCOVAConfig
+from bayesflow_rct.models.ancova.model import ANCOVAConfig, InferenceNetworkConfig
 
 
 class TestANCOVAConfigDefaults:

@@ -2,43 +2,52 @@
 
 from importlib.metadata import PackageNotFoundError, version
 
+from bayesflow_hpo import (
+    AdapterSpec,
+    CompositeSearchSpace,
+    CouplingFlowSpace,
+    DeepSetSpace,
+    GenericObjective,
+    PriorStandardize,
+    TrainingSpace,
+    ValidationDataset,
+    WorkflowBuildConfig,
+    build_inference_network,
+    build_summary_network,
+    build_workflow,
+    create_adapter,
+    create_study,
+    get_workflow_metadata,
+    load_workflow_with_metadata,
+    optimize,
+    run_validation_pipeline as run_hpo_validation_pipeline,
+    save_workflow_with_metadata,
+)
+
 try:
     __version__ = version("bayesflow-rct")
 except PackageNotFoundError:
     __version__ = "0.1.0"  # fallback for uninstalled (e.g. raw checkout)
 
-# Core infrastructure (generic, reusable)
-from bayesflow_rct.core.infrastructure import (
-    AdapterSpec,
-    InferenceNetworkConfig,
-    SummaryNetworkConfig,
-    TrainingConfig,
-    WorkflowConfig,
-    build_inference_network,
-    build_summary_network,
-    build_workflow,
-    load_workflow_with_metadata,
-    save_workflow_with_metadata,
-)
-from bayesflow_rct.core.optimization import (
-    HyperparameterSpace,
-    create_optimization_objective,
-    create_study,
-)
 from bayesflow_rct.core.utils import (
     loguniform_float,
     loguniform_int,
     sample_t_or_normal,
 )
-from bayesflow_rct.core.validation import (
-    run_validation_pipeline,
-)
 
 # ANCOVA model
+from bayesflow_rct.models.ancova.hpo import (
+    get_or_create_validation_data,
+    run_ancova_hpo,
+)
 from bayesflow_rct.models.ancova.model import (
     ANCOVAConfig,
+    InferenceNetworkConfig,
     MetaConfig,
     PriorConfig,
+    SummaryNetworkConfig,
+    TrainingConfig,
+    WorkflowConfig,
     create_ancova_workflow_components,
 )
 
@@ -61,10 +70,15 @@ __all__ = [
     "build_workflow",
     "save_workflow_with_metadata",
     "load_workflow_with_metadata",
+    "optimize",
     "create_study",
-    "HyperparameterSpace",
-    "create_optimization_objective",
-    "run_validation_pipeline",
+    "GenericObjective",
+    "CompositeSearchSpace",
+    "CouplingFlowSpace",
+    "DeepSetSpace",
+    "TrainingSpace",
+    "ValidationDataset",
+    "run_hpo_validation_pipeline",
     "loguniform_int",
     "loguniform_float",
     "sample_t_or_normal",
@@ -73,6 +87,8 @@ __all__ = [
     "PriorConfig",
     "MetaConfig",
     "create_ancova_workflow_components",
+    "get_or_create_validation_data",
+    "run_ancova_hpo",
     # Plotting
     "plot_coverage_diff",
 ]
