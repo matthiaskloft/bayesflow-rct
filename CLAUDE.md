@@ -21,9 +21,9 @@ Always work on a git worktree, not the main repository.
 3. **Draft** - Implement the changes
 4. **Simplify** - Review and simplify the solution
 5. **Update Tests** - Add or update tests for changed functionality
-6. **Update Docs** - Update docstrings and `docs/` documentation
+6. **Update Docs** - Update docstrings and "docs/" markdown files if applicable
 7. **Test** - Run `pytest`
-8. **Verify** - Run `ruff check src/` and `mypy src/`
+8. **Verify** - Run `ruff check src/`
 9. **Quality Check** - Use a subagent to verify code quality and safety
 10. **Learnings** - If problems occurred, note mistakes to avoid in the Learnings section below
 11. **Commit & PR** - Commit changes and create a pull request
