@@ -134,3 +134,6 @@ bayesflow-rct/
 - bayesflow-hpo renamed `compute_metrics()` → `compute_condition_metrics()` and `summarize_metrics()` → `aggregate_condition_rows()`
 - `run_condition_grid_validation` returns `{"condition_rows": [...], "summary": {...}}` — not the old `{"metrics": {...}}` format
 - Plotting functions like `plot_sbc_diagnostics` expect per-simulation data from `run_validation_pipeline()`, not per-condition aggregates from `run_condition_grid_validation`
+- HPO trial params use prefixed keys (`ds_*`, `cf_*`, `fm_*`) that don't match `ANCOVAConfig` field names — use `hpo_params_to_config()` to map them, never filter with `if k in __dataclass_fields__`
+- Keras `ExponentialDecay.decay_steps` counts optimizer steps (batches), not samples — use `batches_per_epoch`, not `batch_size * batches_per_epoch`
+- FlowMatching uses `inference_widths`, CouplingFlow uses `inference_depth` + `inference_hidden_sizes` — don't mix them up
