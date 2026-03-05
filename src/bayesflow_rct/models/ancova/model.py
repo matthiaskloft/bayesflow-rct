@@ -21,6 +21,7 @@ from bayesflow_rct.models.ancova.adapter import (  # noqa: F401
 from bayesflow_rct.models.ancova.config import (  # noqa: F401
     ANCOVAConfig,
     build_networks,
+    hpo_params_to_config,
 )
 
 # Metadata

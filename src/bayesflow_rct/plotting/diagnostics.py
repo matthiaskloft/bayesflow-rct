@@ -45,7 +45,11 @@ def _wilson_score_ci(
     tuple of (ci_low, ci_high)
         Lower and upper bounds of the confidence interval.
     """
-    coverage = np.asarray(coverage)
+    if n_sims <= 0:
+        raise ValueError(f"n_sims must be > 0, got {n_sims}")
+    if not 0 < prob < 1:
+        raise ValueError(f"prob must be in (0, 1), got {prob}")
+    coverage = np.asarray(coverage, dtype=float)
     z = scipy_stats.norm.ppf(0.5 + prob / 2)
     denom = 1 + z**2 / n_sims
     center = (coverage + z**2 / (2 * n_sims)) / denom
@@ -600,6 +604,7 @@ def plot_sbc_by_condition(
     condition_col: str = "id_cond",
     max_conditions: int = 9,
     figsize_per_plot: tuple = (4, 3),
+    n_bins: int = 15,
 ) -> plt.Figure:
     """
     Plot SBC rank histograms for multiple conditions in a grid.
@@ -661,7 +666,7 @@ def plot_sbc_by_condition(
         ranks = simulation_metrics.loc[mask, "sbc_rank"].values
 
         plot_sbc_rank_histogram(
-            ranks, n_post_draws, ax=ax, title=f"Condition {cond_id}", n_bins=15
+            ranks, n_post_draws, ax=ax, title=f"Condition {cond_id}", n_bins=n_bins
         )
         ax.legend().set_visible(False)  # Hide legend for cleaner grid
 
@@ -1152,6 +1157,7 @@ def plot_histogram_by_condition(
         metrics_or_df=results_or_metrics,
         max_conditions=max_conditions,
         figsize_per_plot=figsize_per_plot,
+        n_bins=n_bins,
     )
 
 

@@ -116,6 +116,80 @@ class ANCOVAConfig:
     early_stopping_window: int = 5
 
 
+def hpo_params_to_config(params: dict[str, Any]) -> ANCOVAConfig:
+    """
+    Map HPO trial parameters to a flat :class:`ANCOVAConfig`.
+
+    Optuna search spaces use prefixed keys (``ds_*``, ``cf_*``, ``fm_*``)
+    that don't match ``ANCOVAConfig`` field names.  This helper translates
+    them so that ``build_networks(hpo_params_to_config(trial.params))``
+    produces the HPO-tuned architecture instead of falling back to defaults.
+
+    Parameters
+    ----------
+    params : dict
+        Flat dict from ``trial.params`` (Optuna) or any HPO output.
+        Keys may be prefixed (``ds_summary_dim``, ``cf_depth``, …) or
+        already match ``ANCOVAConfig`` fields (``initial_lr``, …).
+
+    Returns
+    -------
+    ANCOVAConfig
+        Config with HPO-tuned values; unrecognised keys are ignored.
+    """
+    defaults = ANCOVAConfig()
+    cfg: dict[str, Any] = {}
+
+    # --- Summary network (DeepSet space, ds_* prefix) ---
+    if "ds_summary_dim" in params:
+        cfg["summary_dim"] = int(params["ds_summary_dim"])
+    if "ds_depth" in params:
+        cfg["summary_depth"] = int(params["ds_depth"])
+    if "ds_width" in params:
+        cfg["summary_width"] = int(params["ds_width"])
+    if "ds_dropout" in params:
+        cfg["summary_dropout"] = float(params["ds_dropout"])
+
+    # --- Inference network ---
+    if "cf_depth" in params or "cf_subnet_width" in params:
+        # CouplingFlow space (cf_* prefix)
+        cfg["inference_network_type"] = "CouplingFlow"
+        if "cf_depth" in params:
+            cfg["inference_depth"] = int(params["cf_depth"])
+        depth = int(
+            params.get("cf_subnet_depth", len(defaults.inference_hidden_sizes))
+        )
+        width = int(
+            params.get("cf_subnet_width", defaults.inference_hidden_sizes[0])
+        )
+        cfg["inference_hidden_sizes"] = tuple([width] * depth)
+        if "cf_dropout" in params:
+            cfg["inference_dropout"] = float(params["cf_dropout"])
+
+    elif "fm_subnet_width" in params or "fm_subnet_depth" in params:
+        # FlowMatching space (fm_* prefix)
+        cfg["inference_network_type"] = "FlowMatching"
+        depth = int(
+            params.get("fm_subnet_depth", len(defaults.inference_widths))
+        )
+        width = int(
+            params.get("fm_subnet_width", defaults.inference_widths[0])
+        )
+        cfg["inference_widths"] = tuple([width] * depth)
+        if "fm_dropout" in params:
+            cfg["inference_dropout"] = float(params["fm_dropout"])
+        if "fm_use_ot" in params:
+            cfg["inference_use_optimal_transport"] = bool(params["fm_use_ot"])
+
+    # --- Training (no prefix, pass through directly) ---
+    for key in ("initial_lr", "decay_rate", "batch_size", "epochs",
+                "batches_per_epoch"):
+        if key in params:
+            cfg[key] = type(getattr(defaults, key))(params[key])
+
+    return ANCOVAConfig(**cfg)
+
+
 def build_networks(
     config: ANCOVAConfig,
 ) -> tuple:

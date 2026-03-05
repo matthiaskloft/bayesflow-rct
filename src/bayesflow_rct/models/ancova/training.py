@@ -17,7 +17,11 @@ from bayesflow_hpo.builders import (
 )
 
 from bayesflow_rct.models.ancova.adapter import create_ancova_adapter
-from bayesflow_rct.models.ancova.config import ANCOVAConfig, build_networks
+from bayesflow_rct.models.ancova.config import (
+    ANCOVAConfig,
+    build_networks,
+    hpo_params_to_config,
+)
 from bayesflow_rct.models.ancova.validation import build_validation_dataset
 
 if TYPE_CHECKING:
@@ -143,10 +147,7 @@ def create_ancova_training_functions(
 
     def build_workflow_fn(params):
         """Build a fresh workflow from hyperparameters."""
-        config = ANCOVAConfig(**{
-            k: v for k, v in params.items()
-            if k in ANCOVAConfig.__dataclass_fields__
-        })
+        config = hpo_params_to_config(params)
         summary_net, inference_net = build_networks(config)
 
         return build_workflow(

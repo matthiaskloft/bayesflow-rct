@@ -110,8 +110,19 @@ def make_simulate_fn(
 
     def simulate_fn(condition: dict, n_sims: int) -> dict:
         kwargs: dict[str, Any] = {"n_sims": n_sims, "rng": rng}
+        missing = [
+            cond_key
+            for cond_key, fn_param in _ANCOVA_KEY_MAPPING.items()
+            if cond_key not in condition and fn_param not in condition
+        ]
+        if missing:
+            raise KeyError(
+                f"Missing required condition keys: {missing}. "
+                f"Expected keys (or aliases): "
+                f"{list(_ANCOVA_KEY_MAPPING.items())}"
+            )
         for cond_key, fn_param in _ANCOVA_KEY_MAPPING.items():
-            val = condition.get(cond_key, condition.get(fn_param, 0.0))
+            val = condition[cond_key] if cond_key in condition else condition[fn_param]
             if isinstance(val, np.ndarray):
                 val = float(val.flat[0]) if val.size == 1 else val
             kwargs[fn_param] = val
