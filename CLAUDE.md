@@ -114,7 +114,7 @@ bayesflow-rct/
 
 ### Architecture patterns
 - **Thin application layer**: generic HPO/validation/builders live in `bayesflow-hpo`; this repo keeps ANCOVA-specific simulation, adapter, and threshold logic
-- **Flat config per model**: each model has a single flat `@dataclass` (e.g. `ANCOVAConfig`) with all ~28 fields. HPO results map 1:1 to config fields via `ANCOVAConfig(**best_trial.params)`. Future models get their own flat config in `models/<name>/config.py`
+- **Flat config per model**: each model has a single flat `@dataclass` (e.g. `ANCOVAConfig`) with all ~28 fields. HPO results map to config fields via `hpo_params_to_config(best_trial.params)`. Future models get their own flat config in `models/<name>/config.py`
 - **Module-per-concern**: each model is split into focused modules (config, simulator, adapter, validation, training, metadata) with a `model.py` re-export facade for backward compat
 - **Multi-objective optimization**: Optuna studies optimize (calibration_error, param_count) on a Pareto front
 - **External calibration loss**: `bayesflow-calibration-loss` ([bayesflow-calibration-loss](https://github.com/matthiaskloft/bayesflow-calibration-loss)) is a separate repo, installed via `pip install -e ".[calibration]"`

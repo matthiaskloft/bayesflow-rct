@@ -145,9 +145,14 @@ def create_ancova_training_functions(
         rng=rng,
     )
 
+    # Shared mutable state: build_workflow_fn writes the config,
+    # train_fn reads it.  This avoids monkey-patching the workflow.
+    _current_config: list[ANCOVAConfig] = [ANCOVAConfig()]
+
     def build_workflow_fn(params):
         """Build a fresh workflow from hyperparameters."""
         config = hpo_params_to_config(params)
+        _current_config[0] = config
         summary_net, inference_net = build_networks(config)
 
         return build_workflow(
@@ -156,9 +161,9 @@ def create_ancova_training_functions(
             inference_network=inference_net,
             summary_network=summary_net,
             params={
-                "batch_size": int(params["batch_size"]),
-                "initial_lr": float(params["initial_lr"]),
-                "decay_rate": float(params.get("decay_rate", 0.85)),
+                "batch_size": int(config.batch_size),
+                "initial_lr": float(config.initial_lr),
+                "decay_rate": float(config.decay_rate),
             },
             config=WorkflowBuildConfig(
                 inference_conditions=["N", "p_alloc", "prior_df", "prior_scale"],
@@ -168,19 +173,22 @@ def create_ancova_training_functions(
 
     def train_fn(workflow):
         """Train the workflow."""
+        config = _current_config[0]
         try:
             workflow.approximator.compile(optimizer=workflow.optimizer)
         except Exception:
             pass  # Already compiled
 
         early_stop = hpo.MovingAverageEarlyStopping(
-            window=10, patience=10, restore_best_weights=True
+            window=int(config.early_stopping_window),
+            patience=int(config.early_stopping_patience),
+            restore_best_weights=True,
         )
         return workflow.fit_online(
-            epochs=50,
-            batch_size=320,
-            num_batches_per_epoch=50,
-            validation_data=1000,
+            epochs=int(config.epochs),
+            batch_size=int(config.batch_size),
+            num_batches_per_epoch=int(config.batches_per_epoch),
+            validation_data=int(config.validation_sims),
             callbacks=[early_stop],
         )
 
