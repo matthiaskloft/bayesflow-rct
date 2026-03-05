@@ -10,7 +10,6 @@ This module is independent of Optuna and can be used standalone.
 import gc
 from collections.abc import Callable
 from dataclasses import dataclass
-from itertools import product
 from typing import Any
 
 # =============================================================================
@@ -286,81 +285,3 @@ def train_until_threshold(
         "converged": converged,
         "best_scores": best_scores,
     }
-
-
-# =============================================================================
-# STRICT VALIDATION GRID
-# =============================================================================
-
-
-def create_strict_validation_grid(
-    n_vals: list[int] = None,
-    p_alloc_vals: list[float] = None,
-    prior_df_vals: list[int] = None,
-    prior_scale_vals: list[float] = None,
-    b_group_vals: list[float] = None,
-    b_covariate_vals: list[float] = None,
-) -> list[dict]:
-    """
-    Create a strict validation grid covering the full parameter space.
-
-    Default creates a comprehensive 144-condition grid for thorough
-    validation.
-
-    Parameters
-    ----------
-    n_vals : list of int, optional
-        Sample sizes to test. Default: [20, 100, 500, 1000].
-    p_alloc_vals : list of float, optional
-        Allocation probabilities. Default: [0.5, 0.7].
-    prior_df_vals : list of int, optional
-        Prior degrees of freedom. Default: [0, 3, 10, 30].
-    prior_scale_vals : list of float, optional
-        Prior scales. Default: [0.5, 2.0, 5.0].
-    b_group_vals : list of float, optional
-        True treatment effects. Default: [0.0, 0.3, 0.7].
-    b_covariate_vals : list of float, optional
-        Covariate effects. Default: [0.0].
-
-    Returns
-    -------
-    list of dict
-        Condition dictionaries with id_cond and parameter values.
-    """
-    if n_vals is None:
-        n_vals = [20, 100, 500, 1000]
-    if p_alloc_vals is None:
-        p_alloc_vals = [0.5, 0.7]
-    if prior_df_vals is None:
-        prior_df_vals = [0, 3, 10, 30]
-    if prior_scale_vals is None:
-        prior_scale_vals = [0.5, 2.0, 5.0]
-    if b_group_vals is None:
-        b_group_vals = [0.0, 0.3, 0.7]
-    if b_covariate_vals is None:
-        b_covariate_vals = [0.0]
-
-    conditions = []
-    for idx, (n, p, pdf, psc, b_grp, b_cov) in enumerate(
-        product(
-            n_vals,
-            p_alloc_vals,
-            prior_df_vals,
-            prior_scale_vals,
-            b_group_vals,
-            b_covariate_vals,
-        )
-    ):
-        conditions.append(
-            {
-                "id_cond": idx,
-                "n_total": n,
-                "p_alloc": p,
-                "prior_df": pdf,
-                "prior_scale": psc,
-                "b_arm_treat": b_grp,
-                "b_covariate": b_cov,
-            }
-        )
-
-    return conditions

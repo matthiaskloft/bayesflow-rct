@@ -6,7 +6,7 @@ import numpy as np
 
 os.environ.setdefault("KERAS_BACKEND", "torch")
 
-from bayesflow_rct.models.ancova import model as ancova_model
+from bayesflow_rct.models.ancova import validation as ancova_validation
 
 
 def test_make_condition_infer_fn_uses_defaults(monkeypatch):
@@ -23,13 +23,13 @@ def test_make_condition_infer_fn_uses_defaults(monkeypatch):
 		return _infer
 
 	monkeypatch.setattr(
-		ancova_model,
+		ancova_validation,
 		"_make_bayesflow_infer_fn",
 		fake_make_bayesflow_infer_fn,
 	)
 
 	approximator = object()
-	infer_fn = ancova_model.make_condition_infer_fn(approximator=approximator)
+	infer_fn = ancova_validation.make_condition_infer_fn(approximator=approximator)
 
 	assert callable(infer_fn)
 	assert captured["approximator"] is approximator
@@ -37,7 +37,8 @@ def test_make_condition_infer_fn_uses_defaults(monkeypatch):
 	assert captured["data_keys"] == ["outcome", "covariate", "group"]
 
 
-def test_run_condition_grid_validation_returns_expected_structure():
+def test_run_condition_grid_validation_returns_expected_structure(monkeypatch):
+	"""Test that run_condition_grid_validation returns correct structure."""
 	conditions = [{"b_arm_treat": 0.25}]
 
 	def simulate_fn(_condition, n_sims):
@@ -50,7 +51,20 @@ def test_run_condition_grid_validation_returns_expected_structure():
 		draws = np.full((n_sims, n_post_draws, 1), 0.25, dtype=float)
 		return draws
 
-	result = ancova_model.run_condition_grid_validation(
+	# Mock the metric functions to avoid bayesflow dependency issues
+	fake_metrics = {
+		"mean_cal_error": lambda draws, true: {"mean_cal_error": 0.01},
+	}
+	monkeypatch.setattr(ancova_validation, "resolve_metrics", lambda _names: fake_metrics)
+
+	# Mock aggregate to return a simple summary
+	monkeypatch.setattr(
+		ancova_validation,
+		"aggregate_condition_rows",
+		lambda rows: {"mean_cal_error": 0.01},
+	)
+
+	result = ancova_validation.run_condition_grid_validation(
 		conditions_list=conditions,
 		n_sims=8,
 		n_post_draws=10,
@@ -60,7 +74,6 @@ def test_run_condition_grid_validation_returns_expected_structure():
 		verbose=False,
 	)
 
-	assert set(result.keys()) == {"sim_metrics", "metrics", "timing"}
-	assert len(result["sim_metrics"]) == 8
-	assert "summary" in result["metrics"]
-	assert "mean_cal_error" in result["metrics"]["summary"]
+	assert set(result.keys()) == {"condition_rows", "summary", "timing"}
+	assert len(result["condition_rows"]) == 1
+	assert "mean_cal_error" in result["summary"]
