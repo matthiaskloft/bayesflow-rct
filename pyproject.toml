@@ -83,7 +83,7 @@ module = [
     "bayesflow_rct.core.threshold",
     "bayesflow_rct.core.utils",
     "bayesflow_rct.core.infrastructure",
-    "bayesflow_rct.models.ancova.model",
+    "bayesflow_rct.models.ancova.*",
     "bayesflow_rct.core.dashboard",
 ]
 ignore_errors = true
