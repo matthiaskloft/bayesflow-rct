@@ -7,7 +7,11 @@ from typing import Any
 
 import bayesflow_hpo as hpo
 
-from bayesflow_rct.models.ancova.model import ANCOVAConfig, create_ancova_adapter, create_simulator
+from bayesflow_rct.models.ancova.model import (
+    ANCOVAConfig,
+    create_ancova_adapter,
+    create_simulator,
+)
 
 VALIDATION_DATA_DIR = Path("data") / "ancova_validation"
 

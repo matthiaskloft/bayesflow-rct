@@ -19,6 +19,49 @@ from PIL import Image
 from scipy import stats as scipy_stats
 
 # =============================================================================
+# SHARED HELPERS
+# =============================================================================
+
+
+def _wilson_score_ci(
+    coverage: np.ndarray,
+    n_sims: int,
+    prob: float = 0.95,
+) -> tuple[np.ndarray, np.ndarray]:
+    """
+    Compute Wilson score confidence interval for coverage proportions.
+
+    Parameters
+    ----------
+    coverage : array-like
+        Empirical coverage values (proportions in [0, 1]).
+    n_sims : int
+        Number of simulations used to compute coverage.
+    prob : float
+        Confidence level (default: 0.95).
+
+    Returns
+    -------
+    tuple of (ci_low, ci_high)
+        Lower and upper bounds of the confidence interval.
+    """
+    if n_sims <= 0:
+        raise ValueError(f"n_sims must be > 0, got {n_sims}")
+    if not 0 < prob < 1:
+        raise ValueError(f"prob must be in (0, 1), got {prob}")
+    coverage = np.asarray(coverage, dtype=float)
+    z = scipy_stats.norm.ppf(0.5 + prob / 2)
+    denom = 1 + z**2 / n_sims
+    center = (coverage + z**2 / (2 * n_sims)) / denom
+    margin = (
+        z
+        * np.sqrt(coverage * (1 - coverage) / n_sims + z**2 / (4 * n_sims**2))
+        / denom
+    )
+    return np.clip(center - margin, 0, 1), np.clip(center + margin, 0, 1)
+
+
+# =============================================================================
 # GRID LAYOUT HELPER
 # =============================================================================
 
@@ -457,22 +500,7 @@ def plot_sbc_diagnostics(
 
         # Wilson score CI for each coverage level
         n_sims = summary.get("n_simulations", len(metrics["simulation_metrics"]))
-        prob = 0.95
-        z = scipy_stats.norm.ppf(0.5 + prob / 2)
-        ci_low = []
-        ci_high = []
-        for cov in empirical_coverage:
-            denominator = 1 + z**2 / n_sims
-            center = (cov + z**2 / (2 * n_sims)) / denominator
-            margin = (
-                z
-                * np.sqrt(cov * (1 - cov) / n_sims + z**2 / (4 * n_sims**2))
-                / denominator
-            )
-            ci_low.append(max(0, center - margin))
-            ci_high.append(min(1, center + margin))
-        ci_low = np.array(ci_low)
-        ci_high = np.array(ci_high)
+        ci_low, ci_high = _wilson_score_ci(empirical_coverage, n_sims, prob=0.95)
         diff_low = ci_low - widths
         diff_high = ci_high - widths
 
@@ -483,7 +511,7 @@ def plot_sbc_diagnostics(
             diff_high,
             alpha=0.2,
             color="grey",
-            label=f"{int(prob * 100)}% CI",
+            label="95% CI",
         )
         ax.plot(
             widths, diff, "-", color="#132a70", linewidth=1.5, label="Coverage diff"
@@ -570,51 +598,13 @@ def plot_sbc_diagnostics(
     return fig
 
 
-def plot_sbc_from_metrics(
-    metrics: dict, figsize: tuple = (12, 5), title_prefix: str = ""
-) -> plt.Figure:
-    """
-    Create SBC diagnostic plots directly from validation metrics output.
-
-    Convenience function that extracts sbc_rank and n_post_draws from
-    the metrics dict returned by extract_calibration_metrics() or
-    run_validation_pipeline().
-
-    Parameters:
-    -----------
-    metrics : dict
-        Output from extract_calibration_metrics() or run_validation_pipeline()["metrics"]
-        Must contain 'simulation_metrics' DataFrame with 'sbc_rank' column
-        and 'summary' dict with 'n_post_draws' key.
-    figsize : tuple
-        Figure size (width, height)
-    title_prefix : str
-        Prefix for subplot titles
-
-    Returns:
-    --------
-    matplotlib Figure
-
-    Example:
-    --------
-    >>> results = run_validation_pipeline(...)
-    >>> fig = plot_sbc_from_metrics(results["metrics"])
-    """
-    sim_metrics = metrics["simulation_metrics"]
-    summary = metrics["summary"]
-
-    sbc_ranks = sim_metrics["sbc_rank"].values
-    n_post_draws = summary["n_post_draws"]
-
-    return plot_sbc_diagnostics(sbc_ranks, n_post_draws, figsize, title_prefix)
-
-
 def plot_sbc_by_condition(
     metrics_or_df: dict | pd.DataFrame,
     n_post_draws: int | None = None,
     condition_col: str = "id_cond",
     max_conditions: int = 9,
     figsize_per_plot: tuple = (4, 3),
+    n_bins: int = 15,
 ) -> plt.Figure:
     """
     Plot SBC rank histograms for multiple conditions in a grid.
@@ -676,7 +666,7 @@ def plot_sbc_by_condition(
         ranks = simulation_metrics.loc[mask, "sbc_rank"].values
 
         plot_sbc_rank_histogram(
-            ranks, n_post_draws, ax=ax, title=f"Condition {cond_id}", n_bins=15
+            ranks, n_post_draws, ax=ax, title=f"Condition {cond_id}", n_bins=n_bins
         )
         ax.legend().set_visible(False)  # Hide legend for cleaner grid
 
@@ -803,20 +793,7 @@ def plot_coverage_from_metrics(
     diff = empirical_coverage - widths
 
     # Wilson score confidence intervals
-    z = scipy_stats.norm.ppf(0.5 + prob / 2)
-    ci_low = []
-    ci_high = []
-    for cov in empirical_coverage:
-        denominator = 1 + z**2 / n_sims
-        center = (cov + z**2 / (2 * n_sims)) / denominator
-        margin = (
-            z * np.sqrt(cov * (1 - cov) / n_sims + z**2 / (4 * n_sims**2)) / denominator
-        )
-        ci_low.append(max(0, center - margin))
-        ci_high.append(min(1, center + margin))
-
-    ci_low = np.array(ci_low)
-    ci_high = np.array(ci_high)
+    ci_low, ci_high = _wilson_score_ci(empirical_coverage, n_sims, prob=prob)
     diff_low = ci_low - widths
     diff_high = ci_high - widths
 
@@ -901,19 +878,13 @@ def plot_coverage_diff(
     widths = np.linspace(0, 1, max_points)
 
     empirical_coverage = []
-    ci_low = []
-    ci_high = []
 
     for width in widths:
         if width == 0:
             empirical_coverage.append(0)
-            ci_low.append(0)
-            ci_high.append(0)
             continue
         if width == 1:
             empirical_coverage.append(1)
-            ci_low.append(1)
-            ci_high.append(1)
             continue
 
         alpha = 1 - width
@@ -930,23 +901,9 @@ def plot_coverage_diff(
         coverage = np.mean(in_interval)
         empirical_coverage.append(coverage)
 
-        # Wilson score confidence interval
-        z = scipy_stats.norm.ppf(0.5 + prob / 2)
-        denominator = 1 + z**2 / n_sims
-        center = (coverage + z**2 / (2 * n_sims)) / denominator
-        margin = (
-            z
-            * np.sqrt(coverage * (1 - coverage) / n_sims + z**2 / (4 * n_sims**2))
-            / denominator
-        )
-
-        ci_low.append(max(0, center - margin))
-        ci_high.append(min(1, center + margin))
-
     widths = np.asarray(widths)
     empirical_coverage = np.asarray(empirical_coverage)
-    ci_low = np.asarray(ci_low)
-    ci_high = np.asarray(ci_high)
+    ci_low, ci_high = _wilson_score_ci(empirical_coverage, n_sims, prob=prob)
 
     diff = empirical_coverage - widths
     diff_low = ci_low - widths
@@ -1139,22 +1096,7 @@ def plot_coverage_by_condition(
         diff = empirical_coverage - widths
 
         # Wilson score confidence interval
-        z = scipy_stats.norm.ppf(0.5 + prob / 2)
-        ci_low = []
-        ci_high = []
-        for cov in empirical_coverage:
-            denominator = 1 + z**2 / n_sims
-            center = (cov + z**2 / (2 * n_sims)) / denominator
-            margin = (
-                z
-                * np.sqrt(cov * (1 - cov) / n_sims + z**2 / (4 * n_sims**2))
-                / denominator
-            )
-            ci_low.append(max(0, center - margin))
-            ci_high.append(min(1, center + margin))
-
-        ci_low = np.array(ci_low)
-        ci_high = np.array(ci_high)
+        ci_low, ci_high = _wilson_score_ci(empirical_coverage, n_sims, prob=prob)
         diff_low = ci_low - widths
         diff_high = ci_high - widths
 
@@ -1203,71 +1145,20 @@ def plot_histogram_by_condition(
     figsize_per_plot: tuple = (3, 2.5),
     n_bins: int = 15,
 ) -> plt.Figure:
-    """
-    Plot SBC rank histograms for each condition in a grid.
+    """Plot SBC rank histograms by condition (deprecated, use plot_sbc_by_condition)."""
+    import warnings
 
-    Parameters:
-    -----------
-    results_or_metrics : dict
-        Either full output from run_validation_pipeline() or just metrics dict
-    max_conditions : int
-        Maximum number of conditions to show
-    figsize_per_plot : tuple
-        Size per subplot
-    n_bins : int
-        Number of histogram bins
-
-    Returns:
-    --------
-    matplotlib Figure
-    """
-    # Handle both full results and metrics-only input
-    if "metrics" in results_or_metrics:
-        metrics = results_or_metrics["metrics"]
-    else:
-        metrics = results_or_metrics
-
-    sim_metrics = metrics["simulation_metrics"]
-    summary = metrics["summary"]
-
-    id_cond = sim_metrics["id_cond"].values
-    n_post_draws = summary["n_post_draws"]
-
-    unique_conds = np.unique(id_cond)[:max_conditions]
-
-    fig, axes, n_conds, n_rows, n_cols = _create_condition_grid(
-        len(unique_conds),
-        max_conditions,
+    warnings.warn(
+        "plot_histogram_by_condition is deprecated, use plot_sbc_by_condition",
+        DeprecationWarning,
+        stacklevel=2,
+    )
+    return plot_sbc_by_condition(
+        metrics_or_df=results_or_metrics,
+        max_conditions=max_conditions,
         figsize_per_plot=figsize_per_plot,
+        n_bins=n_bins,
     )
-
-    for idx, cond_id in enumerate(unique_conds[:n_conds]):
-        row, col = divmod(idx, n_cols)
-        ax = axes[row, col]
-
-        cond_ranks = sim_metrics.loc[
-            sim_metrics["id_cond"] == cond_id, "sbc_rank"
-        ].values
-
-        plot_sbc_rank_histogram(
-            cond_ranks,
-            n_post_draws,
-            ax=ax,
-            title=f"Cond {cond_id}",
-            n_bins=n_bins,
-        )
-        ax.legend().set_visible(False)
-
-    _hide_empty_subplots(axes, n_conds, n_rows, n_cols)
-
-    fig.suptitle(
-        "SBC Rank Histograms by Condition",
-        fontsize=14,
-        fontweight="bold",
-        y=1.02,
-    )
-    plt.tight_layout()
-    return fig
 
 
 def plot_ecdf_by_condition(

@@ -64,13 +64,18 @@ docker compose --profile cpu up npe-training-cpu  # Run CPU (Jupyter at :8889)
 bayesflow-rct/
 ├── src/bayesflow_rct/              # Main package
 │   ├── core/                           # RCT-specific infrastructure and utilities
-│   │   ├── infrastructure.py           # Slim: PriorStandardize re-export + create_simulator
 │   │   ├── threshold.py                # Threshold-based retraining loop
 │   │   └── utils.py                    # ANCOVA utility helpers
 │   ├── models/
-│   │   └── ancova/
-│   │       └── model.py                # ANCOVA simulators, adapter spec, config shims, workflow factory
-│   │       └── hpo.py                  # Thin wrapper around bayesflow-hpo
+│   │   └── ancova/                     # ANCOVA 2-arms continuous outcome model
+│   │       ├── config.py               # Flat ANCOVAConfig dataclass + build_networks()
+│   │       ├── simulator.py            # prior(), likelihood(), meta(), factory functions
+│   │       ├── adapter.py              # BayesFlow adapter spec + fluent API builder
+│   │       ├── validation.py           # Condition-grid SBC validation
+│   │       ├── training.py             # Optuna objective, threshold training helpers
+│   │       ├── metadata.py             # Model metadata utilities
+│   │       ├── model.py                # Re-export facade for backward compatibility
+│   │       └── hpo.py                  # ANCOVA-specific HPO wrapper
 │   └── plotting/
 │       └── diagnostics.py              # SBC diagnostic plots
 │
@@ -109,7 +114,8 @@ bayesflow-rct/
 
 ### Architecture patterns
 - **Thin application layer**: generic HPO/validation/builders live in `bayesflow-hpo`; this repo keeps ANCOVA-specific simulation, adapter, and threshold logic
-- **Configuration via dataclasses**: ANCOVA-facing config shims remain in `models/ancova/model.py`; generic builders/config are provided by `bayesflow-hpo`
+- **Flat config per model**: each model has a single flat `@dataclass` (e.g. `ANCOVAConfig`) with all ~28 fields. HPO results map to config fields via `hpo_params_to_config(best_trial.params)`. Future models get their own flat config in `models/<name>/config.py`
+- **Module-per-concern**: each model is split into focused modules (config, simulator, adapter, validation, training, metadata) with a `model.py` re-export facade for backward compat
 - **Multi-objective optimization**: Optuna studies optimize (calibration_error, param_count) on a Pareto front
 - **External calibration loss**: `bayesflow-calibration-loss` ([bayesflow-calibration-loss](https://github.com/matthiaskloft/bayesflow-calibration-loss)) is a separate repo, installed via `pip install -e ".[calibration]"`
 
@@ -122,4 +128,12 @@ bayesflow-rct/
 
 ## Learnings / Things to avoid
 
-<!-- @Claude: add learnings at the end of each session if necessary -->
+- `bayesflow.Adapter.convert_dtype(from_dtype, to_dtype)` requires **both** positional args — not just one
+- bayesflow-hpo `get_workflow_metadata()` stores validation under `"validation"` key, not `"validation_results"`
+- bayesflow-hpo removed `AdapterSpec` class — use BayesFlow native `Adapter` fluent API instead
+- bayesflow-hpo renamed `compute_metrics()` → `compute_condition_metrics()` and `summarize_metrics()` → `aggregate_condition_rows()`
+- `run_condition_grid_validation` returns `{"condition_rows": [...], "summary": {...}}` — not the old `{"metrics": {...}}` format
+- Plotting functions like `plot_sbc_diagnostics` expect per-simulation data from `run_validation_pipeline()`, not per-condition aggregates from `run_condition_grid_validation`
+- HPO trial params use prefixed keys (`ds_*`, `cf_*`, `fm_*`) that don't match `ANCOVAConfig` field names — use `hpo_params_to_config()` to map them, never filter with `if k in __dataclass_fields__`
+- Keras `ExponentialDecay.decay_steps` counts optimizer steps (batches), not samples — use `batches_per_epoch`, not `batch_size * batches_per_epoch`
+- FlowMatching uses `inference_widths`, CouplingFlow uses `inference_depth` + `inference_hidden_sizes` — don't mix them up
