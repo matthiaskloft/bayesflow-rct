@@ -199,6 +199,6 @@ def create_ancova_training_functions(
             validation_data=validation_data,
             n_posterior_samples=1000,
         )
-        return results["metrics"]
+        return results.summary
 
     return build_workflow_fn, train_fn, validate_fn
