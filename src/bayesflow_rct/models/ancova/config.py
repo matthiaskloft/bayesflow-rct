@@ -176,6 +176,7 @@ def hpo_params_to_config(params: dict[str, Any]) -> ANCOVAConfig:
             params.get("fm_subnet_width", defaults.inference_widths[0])
         )
         cfg["inference_widths"] = tuple([width] * depth)
+        cfg["inference_depth"] = depth
         if "fm_dropout" in params:
             cfg["inference_dropout"] = float(params["fm_dropout"])
         if "fm_use_ot" in params:

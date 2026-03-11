@@ -83,6 +83,7 @@ __all__ = [
     # Config
     "ANCOVAConfig",
     "build_networks",
+    "hpo_params_to_config",
     # Simulator
     "prior",
     "likelihood",
