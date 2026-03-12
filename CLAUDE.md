@@ -33,10 +33,9 @@ Always work on a git worktree, not the main repository.
 ## Quick Commands
 
 ```bash
-# Environment setup
-python setup_env.py                          # Auto-detect GPU, create venv
-python setup_env.py --cpu-only               # CPU-only PyTorch
-pip install -e ".[dev,notebooks]"            # Editable install with dev tools
+# Environment setup (requires KERAS_BACKEND=torch)
+pip install -e ".[dev,notebooks]"            # Editable install with dev + notebook tools
+pip install -e ".[calibration]"              # Optional: calibration loss addon
 
 # Testing
 pytest                                       # Run all tests
@@ -58,6 +57,7 @@ jupyter notebook examples/                   # Start Jupyter for notebooks
 bayesflow-rct/
 ├── src/bayesflow_rct/              # Main package
 │   ├── core/                           # RCT-specific infrastructure and utilities
+│   │   ├── dashboard.py                # Training dashboard / monitoring
 │   │   ├── threshold.py                # Threshold-based retraining loop
 │   │   └── utils.py                    # ANCOVA utility helpers
 │   ├── models/
@@ -81,11 +81,11 @@ bayesflow-rct/
 ├── examples/                           # Jupyter notebooks
 │   ├── ancova_basic.ipynb              # Basic ANCOVA training
 │   ├── ancova_calibration_loss.ipynb   # Calibration loss training comparison
+│   ├── ancova_calibration_loss_development.ipynb  # Calibration loss development/exploration
 │   └── ancova_optimization.ipynb       # Optuna hyperparameter optimization
 │
 ├── docs/                               # Design docs and guides
 │
-├── setup_env.py                        # Automated environment setup
 ├── pyproject.toml                      # Package config and dependencies
 └── requirements.txt                    # Core dependencies
 ```
@@ -108,9 +108,9 @@ bayesflow-rct/
 - **External calibration loss**: `bayesflow-calibration-loss` ([bayesflow-calibration-loss](https://github.com/matthiaskloft/bayesflow-calibration-loss)) is a separate repo, installed via `pip install -e ".[calibration]"`
 
 ### Conventions
-- Type hints throughout (enforced by mypy)
+- Type hints throughout (mypy configured but `ignore_errors = true` on most modules — gradual adoption)
 - NumPy-style docstrings
-- Ruff for linting (line length 88, Python 3.9+)
+- Ruff for linting (line length 88, Python 3.11+)
 - Test structure mirrors `src/` layout
 
 
@@ -125,3 +125,4 @@ bayesflow-rct/
 - HPO trial params use prefixed keys (`ds_*`, `cf_*`, `fm_*`) that don't match `ANCOVAConfig` field names — use `hpo_params_to_config()` to map them, never filter with `if k in __dataclass_fields__`
 - Keras `ExponentialDecay.decay_steps` counts optimizer steps (batches), not samples — use `batches_per_epoch`, not `batch_size * batches_per_epoch`
 - FlowMatching uses `inference_widths`, CouplingFlow uses `inference_depth` + `inference_hidden_sizes` — don't mix them up
+- Keras is pinned to `<3.13` for BayesFlow 2.0.7 compatibility — don't bump without testing
