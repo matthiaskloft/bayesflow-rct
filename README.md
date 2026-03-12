@@ -2,6 +2,8 @@
 
 Amortized Bayesian inference for Randomized Controlled Trials using [BayesFlow 2.x](https://github.com/bayesflow-org/bayesflow). Train neural posterior estimation (NPE) models once, then obtain instant posterior samples for any new RCT dataset — no MCMC required.
 
+> **Note:** This package is experimental and under active development. APIs may change without notice.
+
 ## Features
 
 - **ANCOVA model** for 2-arm continuous outcome trials with covariate adjustment
@@ -63,16 +65,6 @@ See `examples/` for full notebooks:
 - `ancova_basic.ipynb` — Training and inference
 - `ancova_optimization.ipynb` — Optuna HPO
 - `ancova_calibration_loss.ipynb` — Training with calibration loss
-
-## Project Structure
-
-```
-src/bayesflow_rct/
-├── core/               # Utilities, dashboard, threshold retraining
-├── models/ancova/      # ANCOVA model (config, simulator, adapter, training, HPO, validation)
-└── plotting/           # SBC diagnostic plots
-```
-
 ## License
 
 MIT
