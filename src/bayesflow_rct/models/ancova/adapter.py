@@ -52,14 +52,18 @@ def create_ancova_adapter() -> Adapter:
     Create adapter for ANCOVA 2-arms model using the BayesFlow fluent API.
 
     The adapter pipeline:
-    1. Mark outcome/covariate/group as set-based data
-    2. Standardize outcome and covariate (zero mean, unit variance)
-    3. Apply transforms to context: sqrt(N), log1p(prior_df)
-    4. Map to canonical BayesFlow keys:
+    1. Broadcast scalar context (N, p_alloc, prior_df, prior_scale) to
+       (batch, 1) using outcome's batch dim — must happen before as_set
+       turns outcome 3D, and must target outcome (not b_group) so the
+       key is available during both training and inference
+    2. Mark outcome/covariate/group as set-based data (adds set dim)
+    3. Standardize outcome and covariate (zero mean, unit variance)
+    4. Apply transforms to context: sqrt(N), log1p(prior_df)
+    5. Map to canonical BayesFlow keys:
        - b_group → inference_variables
        - outcome, covariate, group → summary_variables (3D set tensor)
        - N, p_alloc, prior_df, prior_scale → inference_conditions (2D)
-    5. Convert all data to float32
+    6. Convert all data to float32
 
     Returns
     -------
@@ -67,15 +71,19 @@ def create_ancova_adapter() -> Adapter:
     """
     adapter = Adapter()
 
+    # Broadcast scalar context to (batch, 1) using outcome's batch dim.
+    # Must happen BEFORE as_set (outcome is 2D here; after as_set it's 3D).
+    # Uses outcome (not b_group) so the target key exists during inference.
+    for ctx_key in ["N", "p_alloc", "prior_df", "prior_scale"]:
+        adapter.broadcast(ctx_key, to="outcome")
+
     # Set-based data: each observation is one element of the set
     adapter.as_set(["outcome", "covariate", "group"])
 
     # Standardize observation-level data
     adapter.standardize(["outcome", "covariate"], mean=0.0, std=1.0)
 
-    # Expand scalar context from (batch,) to (batch, 1) for concatenation,
-    # then apply transforms
-    adapter.expand_dims(["N", "p_alloc", "prior_df", "prior_scale"], axis=-1)
+    # Apply transforms to context variables
     adapter.apply("N", forward=np.sqrt, inverse=np.square)
     adapter.apply("prior_df", forward=np.log1p, inverse=np.expm1)
 
