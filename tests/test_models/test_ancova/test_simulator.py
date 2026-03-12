@@ -8,6 +8,7 @@ import numpy as np
 
 from bayesflow_rct.models.ancova.config import ANCOVAConfig
 from bayesflow_rct.models.ancova.simulator import (
+    create_simulator,
     likelihood,
     meta,
     prior,
@@ -126,3 +127,24 @@ class TestSimulateCondBatch:
         assert result["p_alloc"] == 0.5
         assert result["prior_df"] == 3
         assert result["prior_scale"] == 1.0
+
+
+class TestSimulatorConditionAliases:
+    def test_sample_accepts_n_as_condition_alias(self):
+        config = ANCOVAConfig()
+        simulator = create_simulator(config, rng=np.random.default_rng(42))
+
+        sims = simulator.sample(
+            2,
+            conditions={
+                "N": 30,
+                "p_alloc": 0.5,
+                "prior_df": 2,
+                "prior_scale": 1.0,
+            },
+            seed=123,
+        )
+
+        assert sims["outcome"].shape[0] == 2
+        assert sims["covariate"].shape[0] == 2
+        assert sims["group"].shape[0] == 2

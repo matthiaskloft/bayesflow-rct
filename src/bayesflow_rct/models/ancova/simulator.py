@@ -232,7 +232,18 @@ def create_prior_fn(config: ANCOVAConfig, rng: np.random.Generator) -> Callable:
 def create_likelihood_fn(rng: np.random.Generator) -> Callable:
     """Create likelihood function with injected rng."""
 
-    def _likelihood(b_covariate, b_group, n_total, p_alloc):
+    def _likelihood(
+        b_covariate,
+        b_group,
+        p_alloc,
+        n_total=None,
+        **kwargs,
+    ):
+        # BayesFlow condition grids commonly provide sample size as `N`.
+        if n_total is None:
+            n_total = kwargs.get("N")
+            if n_total is None:
+                raise TypeError("Expected either `n_total` or `N` in likelihood inputs")
         return likelihood(b_covariate, b_group, n_total, p_alloc, rng)
 
     return _likelihood
