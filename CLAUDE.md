@@ -9,7 +9,7 @@ Key capabilities:
 - Train neural networks to approximate posterior distributions for RCT parameters
 - ANCOVA-specific HPO wrapper in `models/ancova/hpo.py` built on `bayesflow-hpo`
 - Simulation-based calibration (SBC) validation via `bayesflow-hpo.validation`
-- Docker-based deployment with GPU support (CUDA 12.x)
+
 
 
 ## Workflow
@@ -49,12 +49,6 @@ mypy src/                                    # Type checking
 
 # Training (interactive)
 jupyter notebook examples/                   # Start Jupyter for notebooks
-
-# Docker
-docker compose build npe-training            # Build GPU image
-docker compose up npe-training               # Run (Jupyter at :8888)
-docker compose build npe-training-cpu        # Build CPU image
-docker compose --profile cpu up npe-training-cpu  # Run CPU (Jupyter at :8889)
 ```
 
 
@@ -89,14 +83,8 @@ bayesflow-rct/
 │   ├── ancova_calibration_loss.ipynb   # Calibration loss training comparison
 │   └── ancova_optimization.ipynb       # Optuna hyperparameter optimization
 │
-├── scripts/
-│   └── docker-entrypoint.sh            # Docker container startup
-│
 ├── docs/                               # Design docs and guides
 │
-├── Dockerfile                          # GPU image (CUDA 12.1)
-├── Dockerfile.cpu                      # CPU-only image
-├── docker-compose.yml                  # Compose for local/Fluence deployment
 ├── setup_env.py                        # Automated environment setup
 ├── pyproject.toml                      # Package config and dependencies
 └── requirements.txt                    # Core dependencies
