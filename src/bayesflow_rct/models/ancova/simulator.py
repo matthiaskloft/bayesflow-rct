@@ -237,13 +237,13 @@ def create_likelihood_fn(rng: np.random.Generator) -> Callable:
         b_group,
         p_alloc,
         n_total=None,
-        N=None,
+        **kwargs,
     ):
         # BayesFlow condition grids commonly provide sample size as `N`.
         if n_total is None:
-            if N is None:
+            n_total = kwargs.get("N")
+            if n_total is None:
                 raise TypeError("Expected either `n_total` or `N` in likelihood inputs")
-            n_total = N
         return likelihood(b_covariate, b_group, n_total, p_alloc, rng)
 
     return _likelihood
