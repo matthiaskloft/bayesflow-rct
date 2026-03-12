@@ -73,10 +73,9 @@ def create_ancova_adapter() -> Adapter:
     # Standardize observation-level data
     adapter.standardize(["outcome", "covariate"], mean=0.0, std=1.0)
 
-    # Broadcast scalar context to (batch, 1) to match b_group shape,
-    # then apply transforms (must broadcast before concat)
-    for ctx_key in ["N", "p_alloc", "prior_df", "prior_scale"]:
-        adapter.broadcast(ctx_key, to="b_group")
+    # Expand scalar context from (batch,) to (batch, 1) for concatenation,
+    # then apply transforms
+    adapter.expand_dims(["N", "p_alloc", "prior_df", "prior_scale"], axis=-1)
     adapter.apply("N", forward=np.sqrt, inverse=np.square)
     adapter.apply("prior_df", forward=np.log1p, inverse=np.expm1)
 
