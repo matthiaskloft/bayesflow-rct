@@ -1,8 +1,8 @@
 """
 ANCOVA Training Helpers.
 
-Workflow construction, Optuna objective, and threshold-based training
-functions specific to the ANCOVA model.
+Workflow construction and training for a fixed configuration, plus the
+Optuna objective and threshold-training callables built on ``bayesflow-hpo``.
 """
 
 from __future__ import annotations
@@ -10,11 +10,10 @@ from __future__ import annotations
 from collections.abc import Callable
 from typing import TYPE_CHECKING, Any
 
+import bayesflow as bf
 import bayesflow_hpo as hpo
-from bayesflow_hpo.builders import (
-    WorkflowBuildConfig,
-    build_workflow,
-)
+import keras
+import numpy as np
 
 from bayesflow_rct.models.ancova.adapter import create_ancova_adapter
 from bayesflow_rct.models.ancova.config import (
@@ -22,183 +21,172 @@ from bayesflow_rct.models.ancova.config import (
     build_networks,
     hpo_params_to_config,
 )
-from bayesflow_rct.models.ancova.validation import build_validation_dataset
+from bayesflow_rct.models.ancova.simulator import create_simulator
+from bayesflow_rct.models.ancova.validation import (
+    build_validation_dataset,
+    run_validation,
+)
 
 if TYPE_CHECKING:
-    import numpy as np
     from bayesflow import Adapter, Simulator
+
+OBJECTIVE_METRICS = ("calibration_error", "nrmse")
+COST_METRIC = "inference_time"
 
 
 def create_ancova_workflow_components(config: ANCOVAConfig) -> tuple:
     """
     Create all ANCOVA workflow components.
 
-    Parameters
-    ----------
-    config : ANCOVAConfig
-        Complete ANCOVA configuration.
-
     Returns
     -------
     tuple of (summary_net, inference_net, adapter)
     """
     summary_net, inference_net = build_networks(config)
-    adapter = create_ancova_adapter()
-    return summary_net, inference_net, adapter
+    return summary_net, inference_net, create_ancova_adapter()
+
+
+def make_optimizer(config: ANCOVAConfig) -> keras.optimizers.Optimizer:
+    """
+    Adam with linear warmup and cosine decay from ``initial_lr`` to ``min_lr``.
+
+    Steps are optimizer steps (batches): the horizon is
+    ``epochs * batches_per_epoch``. See Keras ``CosineDecay``
+    (https://keras.io/api/optimizers/learning_rate_schedules/cosine_decay/).
+    """
+    total_steps = int(config.epochs) * int(config.batches_per_epoch)
+    warmup = int(config.lr_warmup_steps)
+    if warmup >= total_steps:
+        raise ValueError(
+            f"lr_warmup_steps ({warmup}) must be < total steps ({total_steps})."
+        )
+    schedule = keras.optimizers.schedules.CosineDecay(
+        initial_learning_rate=0.0,
+        decay_steps=total_steps - warmup,
+        alpha=float(config.min_lr) / float(config.initial_lr),
+        warmup_target=float(config.initial_lr),
+        warmup_steps=warmup,
+    )
+    return keras.optimizers.Adam(learning_rate=schedule)
+
+
+def create_ancova_workflow(
+    config: ANCOVAConfig,
+    simulator: Simulator | None = None,
+    adapter: Adapter | None = None,
+    rng: np.random.Generator | None = None,
+) -> bf.BasicWorkflow:
+    """
+    Build a :class:`bayesflow.BasicWorkflow` for a fixed configuration.
+
+    Inference variables and conditions are standardized by the approximator.
+    The approximator is compiled here because BasicWorkflow only compiles
+    when it builds its own optimizer.
+    """
+    summary_net, inference_net = build_networks(config)
+    workflow = bf.BasicWorkflow(
+        simulator=simulator or create_simulator(config, rng),
+        adapter=adapter or create_ancova_adapter(),
+        inference_network=inference_net,
+        summary_network=summary_net,
+        optimizer=make_optimizer(config),
+        standardize=["inference_variables", "inference_conditions"],
+    )
+    workflow.approximator.compile(optimizer=workflow.optimizer)
+    return workflow
+
+
+def train_ancova_workflow(
+    workflow: bf.BasicWorkflow,
+    config: ANCOVAConfig,
+    callbacks: list | None = None,
+) -> keras.callbacks.History:
+    """
+    Train online with moving-average early stopping on the validation loss.
+    """
+    early_stop = hpo.MovingAverageEarlyStopping(
+        monitor="val_loss",
+        window=int(config.early_stopping_window),
+        patience=int(config.early_stopping_patience),
+        restore_best_weights=True,
+    )
+    return workflow.fit_online(
+        epochs=int(config.epochs),
+        batch_size=int(config.batch_size),
+        num_batches_per_epoch=int(config.batches_per_epoch),
+        validation_data=int(config.validation_sims),
+        callbacks=[early_stop, *(callbacks or [])],
+    )
 
 
 def create_ancova_objective(
     config: ANCOVAConfig,
-    simulator: Simulator,
-    adapter: Adapter,
-    search_space: Any,
-    validation_conditions: list[dict],
-    n_sims: int = 500,
-    n_post_draws: int = 500,
-    rng: np.random.Generator = None,
-) -> Callable:
+    search_space: hpo.CompositeSearchSpace,
+    simulator: Simulator | None = None,
+    adapter: Adapter | None = None,
+    validation_data: hpo.ValidationDataset | None = None,
+    n_posterior_samples: int = 500,
+) -> hpo.GenericObjective:
     """
-    Create Optuna objective function for ANCOVA model optimization.
+    Create the Optuna objective for ANCOVA HPO.
 
-    Parameters
-    ----------
-    config : ANCOVAConfig
-        ANCOVA configuration with training settings.
-    simulator : Simulator
-        BayesFlow simulator for the ANCOVA model.
-    adapter : Adapter
-        BayesFlow adapter for data transformation.
-    search_space : bayesflow_hpo.CompositeSearchSpace
-        Search space for hyperparameter sampling.
-    validation_conditions : list of dict
-        Conditions grid for validation.
-    n_sims : int, default=500
-        Number of simulations per condition for validation.
-    n_post_draws : int, default=500
-        Number of posterior draws per simulation.
-    rng : np.random.Generator, optional
-        Random number generator for reproducibility.
+    Uses the ANCOVA validation grid (which ``optimize()`` cannot generate,
+    because the grid fixes prior hyperparameters rather than simulator
+    keywords) and ``bayesflow-hpo``'s fixed-budget training. The objective
+    returns one value per metric in :data:`OBJECTIVE_METRICS` plus the cost
+    metric, all minimized.
 
-    Returns
-    -------
-    objective : Callable
-        Objective function for Optuna.
+    Note: ``GenericObjective`` builds its own approximator and optimizer from
+    the search space, so ``initial_lr``/``min_lr``/``lr_warmup_steps`` and
+    :func:`make_optimizer` apply only to fixed-config training
+    (:func:`create_ancova_workflow`), not to HPO trials.
     """
-
     if not isinstance(search_space, hpo.CompositeSearchSpace):
         raise TypeError(
             "search_space must be a bayesflow_hpo.CompositeSearchSpace instance."
         )
-
-    validation_data = build_validation_dataset(
-        validation_conditions=validation_conditions,
-        n_sims=n_sims,
-        rng=rng,
-    )
-
     objective_config = hpo.ObjectiveConfig(
-        simulator=simulator,
-        adapter=adapter,
+        simulator=simulator or create_simulator(config),
+        adapter=adapter or create_ancova_adapter(),
         search_space=search_space,
-        inference_conditions=["N", "p_alloc", "prior_df", "prior_scale"],
-        validation_data=validation_data,
+        validation_data=validation_data or build_validation_dataset(config),
         epochs=int(config.epochs),
-        batches_per_epoch=int(config.batches_per_epoch),
-        early_stopping_patience=int(config.early_stopping_patience),
-        early_stopping_window=int(config.early_stopping_window),
-        n_posterior_samples=int(n_post_draws),
+        num_batches=int(config.batches_per_epoch),
+        n_posterior_samples=int(n_posterior_samples),
+        objective_metrics=list(OBJECTIVE_METRICS),
+        cost_metric=COST_METRIC,
     )
     return hpo.GenericObjective(objective_config)
 
 
 def create_ancova_training_functions(
+    config: ANCOVAConfig,
     simulator: Simulator,
     adapter: Adapter,
-    validation_conditions: list[dict],
-    rng: np.random.Generator,
+    validation_data: hpo.ValidationDataset,
+    n_posterior_samples: int = 1000,
 ) -> tuple[Callable, Callable, Callable]:
     """
-    Create workflow builder, trainer, and validator functions for ANCOVA model.
-
-    These functions are designed to work with ``train_until_threshold`` from
-    the threshold module.
-
-    Parameters
-    ----------
-    simulator : Simulator
-        BayesFlow simulator for the ANCOVA model.
-    adapter : Adapter
-        BayesFlow adapter for data transformation.
-    validation_conditions : list of dict
-        Conditions grid for validation.
-    rng : np.random.Generator
-        Random number generator for reproducibility.
+    Create builder, trainer and validator callables for ``train_until_threshold``.
 
     Returns
     -------
     tuple of (build_workflow_fn, train_fn, validate_fn)
     """
+    current: dict[str, ANCOVAConfig] = {"config": config}
 
-    validation_data = build_validation_dataset(
-        validation_conditions=validation_conditions,
-        n_sims=1000,
-        rng=rng,
-    )
+    def build_workflow_fn(params: dict[str, Any]) -> bf.BasicWorkflow:
+        cfg = hpo_params_to_config(params) if params else config
+        current["config"] = cfg
+        return create_ancova_workflow(cfg, simulator=simulator, adapter=adapter)
 
-    # Shared mutable state: build_workflow_fn writes the config,
-    # train_fn reads it.  This avoids monkey-patching the workflow.
-    _current_config: list[ANCOVAConfig] = [ANCOVAConfig()]
+    def train_fn(workflow: bf.BasicWorkflow) -> keras.callbacks.History:
+        return train_ancova_workflow(workflow, current["config"])
 
-    def build_workflow_fn(params):
-        """Build a fresh workflow from hyperparameters."""
-        config = hpo_params_to_config(params)
-        _current_config[0] = config
-        summary_net, inference_net = build_networks(config)
-
-        return build_workflow(
-            simulator=simulator,
-            adapter=adapter,
-            inference_network=inference_net,
-            summary_network=summary_net,
-            params={
-                "batch_size": int(config.batch_size),
-                "initial_lr": float(config.initial_lr),
-                "decay_rate": float(config.decay_rate),
-            },
-            config=WorkflowBuildConfig(
-                inference_conditions=["N", "p_alloc", "prior_df", "prior_scale"],
-                checkpoint_name="ancova_threshold_workflow",
-            ),
+    def validate_fn(workflow: bf.BasicWorkflow) -> dict[str, Any]:
+        result = run_validation(
+            workflow.approximator, validation_data, n_posterior_samples
         )
-
-    def train_fn(workflow):
-        """Train the workflow."""
-        config = _current_config[0]
-        try:
-            workflow.approximator.compile(optimizer=workflow.optimizer)
-        except Exception:
-            pass  # Already compiled
-
-        early_stop = hpo.MovingAverageEarlyStopping(
-            window=int(config.early_stopping_window),
-            patience=int(config.early_stopping_patience),
-            restore_best_weights=True,
-        )
-        return workflow.fit_online(
-            epochs=int(config.epochs),
-            batch_size=int(config.batch_size),
-            num_batches_per_epoch=int(config.batches_per_epoch),
-            validation_data=int(config.validation_sims),
-            callbacks=[early_stop],
-        )
-
-    def validate_fn(workflow):
-        """Validate the workflow on the strict grid."""
-        results = hpo.run_validation_pipeline(
-            approximator=workflow.approximator,
-            validation_data=validation_data,
-            n_posterior_samples=1000,
-        )
-        return results.summary
+        return result.summary
 
     return build_workflow_fn, train_fn, validate_fn

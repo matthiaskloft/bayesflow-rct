@@ -11,11 +11,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from typing import Any
 
-import bayesflow_hpo as hpo
-from bayesflow_hpo.builders import (
-    build_inference_network,
-    build_summary_network,
-)
+import bayesflow as bf
 
 
 @dataclass
@@ -29,18 +25,18 @@ class ANCOVAConfig:
 
     Parameters
     ----------
-    b_covariate_scale : float
-        Scale for b_covariate Normal prior distribution.
     n_min, n_max : int
-        Sample-size range for meta-parameter sampling.
+        Log-uniform sample-size range.
     p_alloc_min, p_alloc_max : float
-        Treatment allocation probability range.
-    prior_df_min, prior_df_max : int
-        Degrees-of-freedom range for the b_group prior.
-    prior_df_alpha : float
-        Alpha for log-uniform sampling of prior_df.
-    prior_scale_gamma_shape, prior_scale_gamma_scale : float
-        Gamma distribution parameters for prior_scale sampling.
+        Uniform range of the treatment allocation ratio.
+    prior_df_median_shifted, prior_df_sdlog : float
+        ``prior_df ~ 1 + LogNormal(log(median_shifted), sdlog)``.
+    prior_scale_median, prior_scale_sdlog : float
+        ``prior_scale ~ LogNormal(log(median), sdlog)``.
+    d_bound : float
+        Truncation bound ``|b_group| <= d_bound`` of the treatment-effect prior.
+    r2_beta_a, r2_beta_b : float
+        ``R2 ~ Beta(a, b)`` for the covariate's share of non-treatment variance.
     summary_dim : int
         Output dimensionality of the summary network.
     summary_depth : int
@@ -62,9 +58,11 @@ class ANCOVAConfig:
     inference_use_optimal_transport : bool
         Whether to use optimal transport in FlowMatching.
     initial_lr : float
-        Initial learning rate.
-    decay_rate : float
-        Learning rate exponential decay factor.
+        Peak learning rate (Adam), reached after ``lr_warmup_steps``.
+    min_lr : float
+        Final learning rate of the cosine decay.
+    lr_warmup_steps : int
+        Linear warmup in optimizer steps (batches).
     batch_size : int
         Training batch size.
     epochs : int
@@ -79,17 +77,18 @@ class ANCOVAConfig:
         Moving-average window for early stopping.
     """
 
-    # --- Simulation / prior ---
-    b_covariate_scale: float = 2.0
+    # --- Simulation / prior (docs/ancova_prior_spec.md) ---
     n_min: int = 20
     n_max: int = 1000
-    p_alloc_min: float = 0.5
+    p_alloc_min: float = 0.4
     p_alloc_max: float = 0.9
-    prior_df_min: int = 0
-    prior_df_max: int = 30
-    prior_df_alpha: float = 0.7
-    prior_scale_gamma_shape: float = 2.0
-    prior_scale_gamma_scale: float = 1.0
+    prior_df_median_shifted: float = 5.0
+    prior_df_sdlog: float = 1.0
+    prior_scale_median: float = 0.7
+    prior_scale_sdlog: float = 0.75
+    d_bound: float = 5.0
+    r2_beta_a: float = 1.2
+    r2_beta_b: float = 2.0
 
     # --- Summary network (discoverable by HPO) ---
     summary_dim: int = 10
@@ -100,17 +99,18 @@ class ANCOVAConfig:
     # --- Inference network (discoverable by HPO) ---
     inference_network_type: str = "FlowMatching"
     inference_depth: int = 7
-    inference_widths: tuple[int, ...] = (125, 125, 125)
+    inference_widths: tuple[int, ...] = (128, 128, 128)
     inference_hidden_sizes: tuple[int, ...] = (128, 128)
     inference_dropout: float = 0.05
     inference_use_optimal_transport: bool = True
 
     # --- Training (discoverable by HPO) ---
-    initial_lr: float = 7e-4
-    decay_rate: float = 0.85
-    batch_size: int = 320
-    epochs: int = 200
-    batches_per_epoch: int = 50
+    initial_lr: float = 1e-3
+    min_lr: float = 1e-4
+    lr_warmup_steps: int = 25
+    batch_size: int = 256
+    epochs: int = 50
+    batches_per_epoch: int = 100
     validation_sims: int = 1000
     early_stopping_patience: int = 10
     early_stopping_window: int = 5
@@ -183,8 +183,8 @@ def hpo_params_to_config(params: dict[str, Any]) -> ANCOVAConfig:
             cfg["inference_use_optimal_transport"] = bool(params["fm_use_ot"])
 
     # --- Training (no prefix, pass through directly) ---
-    for key in ("initial_lr", "decay_rate", "batch_size", "epochs",
-                "batches_per_epoch"):
+    for key in ("initial_lr", "min_lr", "lr_warmup_steps", "batch_size",
+                "epochs", "batches_per_epoch"):
         if key in params:
             cfg[key] = type(getattr(defaults, key))(params[key])
 
@@ -197,9 +197,6 @@ def build_networks(
     """
     Build summary and inference networks from a flat config.
 
-    Uses ``bayesflow_hpo`` search-space objects to construct the networks
-    from the config's architecture fields.
-
     Parameters
     ----------
     config : ANCOVAConfig
@@ -209,48 +206,35 @@ def build_networks(
     -------
     tuple of (summary_net, inference_net)
     """
-    summary_space = hpo.DeepSetSpace()
-    summary_params: dict[str, Any] = {
-        "ds_summary_dim": int(config.summary_dim),
-        "ds_depth": int(config.summary_depth),
-        "ds_width": int(config.summary_width),
-        "ds_dropout": float(config.summary_dropout),
-    }
+    width = int(config.summary_width)
+    mlp = (width,) * int(config.summary_depth)
+    summary_net = bf.networks.DeepSet(
+        summary_dim=int(config.summary_dim),
+        mlp_widths_equivariant=mlp,
+        mlp_widths_invariant_inner=mlp,
+        mlp_widths_invariant_outer=mlp,
+        mlp_widths_invariant_last=mlp,
+        dropout=float(config.summary_dropout),
+    )
 
     if config.inference_network_type == "FlowMatching":
-        inference_space = hpo.FlowMatchingSpace()
-        fm_width = int(config.inference_widths[0]) if config.inference_widths else 128
-        inference_params: dict[str, Any] = {
-            "fm_subnet_width": fm_width,
-            "fm_subnet_depth": len(config.inference_widths) or 3,
-            "fm_dropout": float(config.inference_dropout),
-            "fm_activation": "mish",
-            "fm_use_ot": bool(config.inference_use_optimal_transport),
-        }
-    elif config.inference_network_type == "CouplingFlow":
-        inference_space = hpo.CouplingFlowSpace()
-        cf_width = (
-            int(config.inference_hidden_sizes[0])
-            if config.inference_hidden_sizes
-            else 128
+        inference_net = bf.networks.FlowMatching(
+            subnet_kwargs={
+                "widths": tuple(int(w) for w in config.inference_widths),
+                "dropout": float(config.inference_dropout),
+            },
+            use_optimal_transport=bool(config.inference_use_optimal_transport),
         )
-        inference_params = {
-            "cf_depth": int(config.inference_depth),
-            "cf_subnet_width": cf_width,
-            "cf_subnet_depth": len(config.inference_hidden_sizes) or 2,
-            "cf_dropout": float(config.inference_dropout),
-            "cf_activation": "silu",
-        }
+    elif config.inference_network_type == "CouplingFlow":
+        inference_net = bf.networks.CouplingFlow(
+            depth=int(config.inference_depth),
+            subnet_kwargs={
+                "widths": tuple(int(w) for w in config.inference_hidden_sizes),
+                "dropout": float(config.inference_dropout),
+            },
+        )
     else:
         raise ValueError(
             f"Unknown inference network type: {config.inference_network_type}"
         )
-
-    composite_space = hpo.CompositeSearchSpace(
-        inference_space=inference_space,
-        summary_space=summary_space,
-    )
-    params = {**summary_params, **inference_params}
-    summary_net = build_summary_network(params=params, search_space=composite_space)
-    inference_net = build_inference_network(params=params, search_space=composite_space)
     return summary_net, inference_net

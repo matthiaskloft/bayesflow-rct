@@ -5,7 +5,7 @@ from dataclasses import asdict
 
 os.environ.setdefault("KERAS_BACKEND", "torch")
 
-from bayesflow_rct.models.ancova.config import ANCOVAConfig, hpo_params_to_config
+from bayesflow_rct.models.ancova.config import ANCOVAConfig
 
 
 class TestANCOVAConfigDefaults:
@@ -15,7 +15,7 @@ class TestANCOVAConfigDefaults:
 
     def test_default_flow_matching_widths(self):
         config = ANCOVAConfig()
-        assert config.inference_widths == (125, 125, 125)
+        assert config.inference_widths == (128, 128, 128)
 
     def test_default_flow_matching_dropout(self):
         config = ANCOVAConfig()
@@ -37,7 +37,7 @@ class TestANCOVAConfigDefaults:
         d = asdict(config)
         restored = ANCOVAConfig(**d)
         assert restored.inference_network_type == "FlowMatching"
-        assert restored.inference_widths == (125, 125, 125)
+        assert restored.inference_widths == (128, 128, 128)
 
     def test_flat_params_roundtrip(self):
         """Flat dict with ANCOVAConfig field names should work directly."""

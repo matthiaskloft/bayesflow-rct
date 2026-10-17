@@ -6,45 +6,45 @@ Builds the BayesFlow adapter for the ANCOVA 2-arms continuous outcome model.
 
 from __future__ import annotations
 
+import keras
 import numpy as np
 from bayesflow import Adapter
+from bayesflow.adapters.transforms import (
+    ConvertDType,
+    ElementwiseTransform,
+    FilterTransform,
+)
+
+CONTEXT_KEYS = ["N", "p_alloc", "prior_df", "prior_scale"]
+DATA_KEYS = ["outcome", "covariate", "group"]
 
 
-def get_ancova_adapter_spec() -> dict:
+@keras.saving.register_keras_serializable(package="bayesflow_rct")
+class DatasetStandardize(ElementwiseTransform):
     """
-    Return the adapter specification for ANCOVA 2-arms model as a plain dict.
+    Standardize each dataset along its observation axis (mean 0, SD 1, ddof=1).
 
-    This declaratively describes how ANCOVA data maps to the BayesFlow adapter:
-    - Set-based data: outcome, covariate, group (per-observation)
-    - Parameters to infer: b_group (treatment effect)
-    - Context variables: N, p_alloc, prior_df, prior_scale
-    - Standardization of outcome and covariate
-    - Prior standardization of b_group by prior_scale
-    - Broadcasting and transformations for context variables
-
-    Returns
-    -------
-    dict
-        Declarative specification for ANCOVA adapter.
+    Applied to raw ``(batch, N)`` arrays, identically for simulated and real
+    data, so callers never preprocess. The treatment effect in residual-SD
+    units (Cohen's d) is invariant to this affine transform of the outcome.
+    ``inverse`` is the identity: data keys are never mapped back.
     """
-    return {
-        "set_keys": ["outcome", "covariate", "group"],
-        "param_keys": ["b_group"],
-        "context_keys": ["N", "p_alloc", "prior_df", "prior_scale"],
-        "standardize_keys": ["outcome", "covariate"],
-        "prior_standardize": {"b_group": (None, "prior_scale")},
-        "broadcast_specs": {
-            "N": "outcome",
-            "p_alloc": "outcome",
-            "prior_df": "outcome",
-            "prior_scale": "outcome",
-        },
-        "context_transforms": {
-            "N": (np.sqrt, np.square),
-            "prior_df": (np.log1p, np.expm1),
-        },
-        "output_dtype": "float32",
-    }
+
+    def forward(self, data: np.ndarray, **kwargs) -> np.ndarray:  # noqa: D401
+        mean = data.mean(axis=-1, keepdims=True)
+        std = data.std(axis=-1, ddof=1, keepdims=True)
+        if not np.all(std > 0):
+            raise ValueError(
+                "DatasetStandardize: a dataset has zero (or undefined) SD; "
+                "outcome and covariate must vary and N must be >= 2."
+            )
+        return (data - mean) / std
+
+    def inverse(self, data: np.ndarray, **kwargs) -> np.ndarray:  # noqa: D401
+        return data
+
+    def get_config(self) -> dict:
+        return {}
 
 
 def create_ancova_adapter() -> Adapter:
@@ -52,18 +52,20 @@ def create_ancova_adapter() -> Adapter:
     Create adapter for ANCOVA 2-arms model using the BayesFlow fluent API.
 
     The adapter pipeline:
-    1. Broadcast scalar context (N, p_alloc, prior_df, prior_scale) to
-       (batch, 1) using outcome's batch dim — must happen before as_set
-       turns outcome 3D, and must target outcome (not b_group) so the
-       key is available during both training and inference
-    2. Mark outcome/covariate/group as set-based data (adds set dim)
-    3. Standardize outcome and covariate (zero mean, unit variance)
-    4. Apply transforms to context: sqrt(N), log1p(prior_df)
-    5. Map to canonical BayesFlow keys:
-       - b_group → inference_variables
-       - outcome, covariate, group → summary_variables (3D set tensor)
-       - N, p_alloc, prior_df, prior_scale → inference_conditions (2D)
-    6. Convert all data to float32
+
+    1. Standardize ``outcome`` and ``covariate`` per dataset
+       (:class:`DatasetStandardize`).
+    2. Broadcast scalar context (N, p_alloc, prior_df, prior_scale) to
+       ``(batch, 1)`` using outcome's batch dim — before ``as_set`` makes
+       outcome 3D, and targeting outcome so it also works at inference.
+    3. Mark outcome/covariate/group as set-based data.
+    4. Transform context: ``sqrt(N)``, ``log(prior_df)``, ``log(prior_scale)``.
+    5. Map to canonical keys: ``b_group`` → ``inference_variables``, data →
+       ``summary_variables``, context → ``inference_conditions``.
+    6. Convert to float32.
+
+    The approximator's own standardization handles inference variables and
+    conditions.
 
     Returns
     -------
@@ -71,37 +73,38 @@ def create_ancova_adapter() -> Adapter:
     """
     adapter = Adapter()
 
-    # Broadcast scalar context to (batch, 1) using outcome's batch dim.
-    # Must happen BEFORE as_set (outcome is 2D here; after as_set it's 3D).
-    # Uses outcome (not b_group) so the target key exists during inference.
-    for ctx_key in ["N", "p_alloc", "prior_df", "prior_scale"]:
+    # Real data may carry integer arrays (e.g. group); cast the data arrays to
+    # float64 so the final float64 -> float32 conversion covers them.
+    adapter.add_transform(
+        FilterTransform(
+            include=DATA_KEYS,
+            transform_constructor=ConvertDType,
+            from_dtype="int64",
+            to_dtype="float64",
+        )
+    )
+
+    adapter.add_transform(
+        FilterTransform(
+            include=["outcome", "covariate"],
+            transform_constructor=DatasetStandardize,
+        )
+    )
+
+    for ctx_key in CONTEXT_KEYS:
         adapter.broadcast(ctx_key, to="outcome")
 
-    # Set-based data: each observation is one element of the set
-    adapter.as_set(["outcome", "covariate", "group"])
+    adapter.as_set(DATA_KEYS)
 
-    # Standardize observation-level data
-    adapter.standardize(["outcome", "covariate"], mean=0.0, std=1.0)
-
-    # Apply transforms to context variables
     adapter.apply("N", forward=np.sqrt, inverse=np.square)
-    adapter.apply("prior_df", forward=np.log1p, inverse=np.expm1)
+    adapter.apply(["prior_df", "prior_scale"], forward=np.log, inverse=np.exp)
 
-    # Drop nuisance parameter (not an inference target or condition)
     adapter.drop("b_covariate")
 
-    # Map to canonical BayesFlow keys
     adapter.rename("b_group", "inference_variables")
-    adapter.concatenate(
-        ["outcome", "covariate", "group"], into="summary_variables", axis=-1
-    )
-    adapter.concatenate(
-        ["N", "p_alloc", "prior_df", "prior_scale"],
-        into="inference_conditions",
-        axis=-1,
-    )
+    adapter.concatenate(DATA_KEYS, into="summary_variables", axis=-1)
+    adapter.concatenate(CONTEXT_KEYS, into="inference_conditions", axis=-1)
 
-    # Convert to float32
     adapter.convert_dtype("float64", "float32")
 
     return adapter

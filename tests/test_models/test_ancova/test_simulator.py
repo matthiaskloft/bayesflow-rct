@@ -5,146 +5,105 @@ import os
 os.environ.setdefault("KERAS_BACKEND", "torch")
 
 import numpy as np
+import pytest
+from scipy import stats
 
 from bayesflow_rct.models.ancova.config import ANCOVAConfig
 from bayesflow_rct.models.ancova.simulator import (
+    allocate,
     create_simulator,
     likelihood,
     meta,
     prior,
-    simulate_cond_batch,
+    sample_truncated_t,
 )
 
 
+class TestTruncatedT:
+    def test_respects_bound(self):
+        rng = np.random.default_rng(0)
+        draws = sample_truncated_t(df=1.0, scale=3.0, bound=5.0, rng=rng, size=5000)
+        assert np.all(np.abs(draws) <= 5.0)
+
+    def test_matches_truncated_distribution(self):
+        """KS test against scipy's t restricted to [-bound, bound]."""
+        rng = np.random.default_rng(1)
+        df, scale, bound = 3.0, 0.7, 2.0
+        draws = sample_truncated_t(df, scale, bound, rng, size=4000)
+        lo, hi = stats.t.cdf(-bound / scale, df), stats.t.cdf(bound / scale, df)
+
+        def cdf(x):
+            return (stats.t.cdf(x / scale, df) - lo) / (hi - lo)
+
+        assert stats.kstest(draws, cdf).pvalue > 0.01
+
+
 class TestPrior:
-    def test_returns_dict_with_expected_keys(self):
-        config = ANCOVAConfig()
-        rng = np.random.default_rng(42)
-        result = prior(prior_df=3, prior_scale=1.0, config=config, rng=rng)
-        assert "b_covariate" in result
-        assert "b_group" in result
-
-    def test_output_shapes(self):
-        config = ANCOVAConfig()
-        rng = np.random.default_rng(42)
-        result = prior(prior_df=3, prior_scale=1.0, config=config, rng=rng)
-        assert result["b_covariate"].shape == (1,)
+    def test_keys_and_shapes(self):
+        result = prior(3.0, 1.0, ANCOVAConfig(), np.random.default_rng(42))
         assert result["b_group"].shape == (1,)
+        assert result["b_covariate"].shape == (1,)
 
-    def test_normal_prior_when_df_zero(self):
-        """df=0 should use Normal distribution (via sample_t_or_normal)."""
+    def test_b_group_truncated(self):
         config = ANCOVAConfig()
-        rng = np.random.default_rng(42)
-        result = prior(prior_df=0, prior_scale=1.0, config=config, rng=rng)
-        assert np.isfinite(result["b_group"][0])
+        rng = np.random.default_rng(3)
+        draws = [prior(1.0, 3.0, config, rng)["b_group"][0] for _ in range(500)]
+        assert np.max(np.abs(draws)) <= config.d_bound
+
+    def test_covariate_r2_mapping(self):
+        """b_cov = ±sqrt(R2/(1-R2)) implies R2 = b²/(1+b²) has the Beta prior."""
+        config = ANCOVAConfig()
+        rng = np.random.default_rng(4)
+        b = np.array(
+            [prior(3.0, 1.0, config, rng)["b_covariate"][0] for _ in range(3000)]
+        )
+        r2 = b**2 / (1 + b**2)
+        beta = stats.beta(config.r2_beta_a, config.r2_beta_b)
+        assert stats.kstest(r2, beta.cdf).pvalue > 0.01
+
+
+class TestAllocation:
+    @pytest.mark.parametrize("n,p", [(20, 0.5), (101, 0.8), (30, 0.4)])
+    def test_exact_counts(self, n, p):
+        group = allocate(n, p, np.random.default_rng(0))
+        assert group.sum() == round(n * p)
+
+    def test_both_arms_nonempty(self):
+        group = allocate(20, 0.99, np.random.default_rng(0))
+        assert 0 < group.sum() < 20
 
 
 class TestLikelihood:
-    def test_returns_dict_with_expected_keys(self):
-        rng = np.random.default_rng(42)
-        result = likelihood(
-            b_covariate=0.5, b_group=0.3, n_total=50, p_alloc=0.5, rng=rng
-        )
-        assert set(result.keys()) == {"outcome", "covariate", "group"}
+    def test_keys_and_shapes(self):
+        result = likelihood(0.5, 0.3, 50, 0.5, np.random.default_rng(42))
+        assert set(result) == {"outcome", "covariate", "group"}
+        assert all(v.shape == (50,) for v in result.values())
 
-    def test_output_shapes(self):
-        rng = np.random.default_rng(42)
-        result = likelihood(
-            b_covariate=0.5, b_group=0.3, n_total=50, p_alloc=0.5, rng=rng
-        )
-        assert result["outcome"].shape == (50,)
-        assert result["covariate"].shape == (50,)
-        assert result["group"].shape == (50,)
-
-    def test_both_groups_present(self):
-        rng = np.random.default_rng(42)
-        result = likelihood(
-            b_covariate=0.5, b_group=0.3, n_total=100, p_alloc=0.5, rng=rng
-        )
-        unique_groups = np.unique(result["group"])
-        assert len(unique_groups) == 2
+    def test_residual_sd_is_one(self):
+        rng = np.random.default_rng(5)
+        d = likelihood(1.0, 0.5, 20000, 0.5, rng)
+        resid = d["outcome"] - 0.5 * d["group"] - 1.0 * d["covariate"]
+        assert abs(resid.std() - 1.0) < 0.03
 
 
 class TestMeta:
-    def test_returns_expected_keys(self):
+    def test_ranges(self):
         config = ANCOVAConfig()
         rng = np.random.default_rng(42)
-        result = meta(config, rng)
-        assert set(result.keys()) == {"N", "p_alloc", "prior_df", "prior_scale"}
-
-    def test_n_in_range(self):
-        config = ANCOVAConfig()
-        rng = np.random.default_rng(42)
-        for _ in range(20):
-            result = meta(config, rng)
-            assert config.n_min <= result["N"] <= config.n_max
-
-    def test_p_alloc_in_range(self):
-        config = ANCOVAConfig()
-        rng = np.random.default_rng(42)
-        for _ in range(20):
-            result = meta(config, rng)
-            assert config.p_alloc_min <= result["p_alloc"] <= config.p_alloc_max
-
-    def test_prior_df_in_range(self):
-        config = ANCOVAConfig()
-        rng = np.random.default_rng(42)
-        for _ in range(20):
-            result = meta(config, rng)
-            assert config.prior_df_min <= result["prior_df"] <= config.prior_df_max
+        for _ in range(200):
+            m = meta(config, rng)
+            assert set(m) == {"N", "p_alloc", "prior_df", "prior_scale"}
+            assert config.n_min <= m["N"] <= config.n_max
+            assert isinstance(m["N"], int)
+            assert config.p_alloc_min <= m["p_alloc"] <= config.p_alloc_max
+            assert m["prior_df"] >= 1.0
+            assert m["prior_scale"] > 0.0
 
 
-class TestSimulateCondBatch:
-    def test_returns_expected_keys(self):
-        result = simulate_cond_batch(
-            n_sims=10, n_total=50, p_alloc=0.5,
-            b_covariate=0.5, b_group=0.3,
-            prior_df=3, prior_scale=1.0,
-            rng=np.random.default_rng(42),
-        )
-        expected = {"outcome", "covariate", "group", "N", "p_alloc", "prior_df", "prior_scale"}
-        assert set(result.keys()) == expected
-
-    def test_output_shapes(self):
-        result = simulate_cond_batch(
-            n_sims=10, n_total=50, p_alloc=0.5,
-            b_covariate=0.5, b_group=0.3,
-            prior_df=3, prior_scale=1.0,
-            rng=np.random.default_rng(42),
-        )
-        assert result["outcome"].shape == (10, 50)
-        assert result["covariate"].shape == (10, 50)
-        assert result["group"].shape == (10, 50)
-
-    def test_metadata_values(self):
-        result = simulate_cond_batch(
-            n_sims=10, n_total=50, p_alloc=0.5,
-            b_covariate=0.5, b_group=0.3,
-            prior_df=3, prior_scale=1.0,
-            rng=np.random.default_rng(42),
-        )
-        assert result["N"] == 50
-        assert result["p_alloc"] == 0.5
-        assert result["prior_df"] == 3
-        assert result["prior_scale"] == 1.0
-
-
-class TestSimulatorConditionAliases:
-    def test_sample_accepts_n_as_condition_alias(self):
-        config = ANCOVAConfig()
-        simulator = create_simulator(config, rng=np.random.default_rng(42))
-
-        sims = simulator.sample(
-            2,
-            conditions={
-                "N": 30,
-                "p_alloc": 0.5,
-                "prior_df": 2,
-                "prior_scale": 1.0,
-            },
-            seed=123,
-        )
-
-        assert sims["outcome"].shape[0] == 2
-        assert sims["covariate"].shape[0] == 2
-        assert sims["group"].shape[0] == 2
+def test_simulator_batch_shapes():
+    simulator = create_simulator(ANCOVAConfig(), rng=np.random.default_rng(0))
+    batch = simulator.sample(4)
+    n = batch["outcome"].shape[1]
+    assert batch["b_group"].shape == (4, 1)
+    assert batch["covariate"].shape == (4, n)
+    assert batch["group"].shape == (4, n)

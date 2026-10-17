@@ -1,4 +1,4 @@
-"""Tests for ANCOVA adapter specification and construction."""
+"""Tests for the ANCOVA adapter."""
 
 import os
 
@@ -7,62 +7,78 @@ os.environ.setdefault("KERAS_BACKEND", "torch")
 import numpy as np
 
 from bayesflow_rct.models.ancova.adapter import (
+    DatasetStandardize,
     create_ancova_adapter,
-    get_ancova_adapter_spec,
 )
+from bayesflow_rct.models.ancova.config import ANCOVAConfig
+from bayesflow_rct.models.ancova.simulator import create_simulator
+from bayesflow_rct.models.ancova.validation import simulate_condition
 
 
-class TestANCOVAAdapterSpec:
-    def test_spec_returns_dict(self):
-        spec = get_ancova_adapter_spec()
-        assert isinstance(spec, dict)
-
-    def test_spec_has_required_keys(self):
-        spec = get_ancova_adapter_spec()
-        assert "set_keys" in spec
-        assert "param_keys" in spec
-        assert "context_keys" in spec
-
-    def test_set_keys(self):
-        spec = get_ancova_adapter_spec()
-        assert spec["set_keys"] == ["outcome", "covariate", "group"]
-
-    def test_param_keys(self):
-        spec = get_ancova_adapter_spec()
-        assert spec["param_keys"] == ["b_group"]
-
-    def test_context_keys(self):
-        spec = get_ancova_adapter_spec()
-        assert spec["context_keys"] == ["N", "p_alloc", "prior_df", "prior_scale"]
-
-    def test_prior_standardize_spec(self):
-        spec = get_ancova_adapter_spec()
-        assert "prior_standardize" in spec
-        assert "b_group" in spec["prior_standardize"]
-
-    def test_context_transforms(self):
-        spec = get_ancova_adapter_spec()
-        transforms = spec["context_transforms"]
-        assert "N" in transforms
-        assert "prior_df" in transforms
-        # Each transform is a (forward, inverse) tuple
-        fwd, inv = transforms["N"]
-        assert np.isclose(fwd(4.0), 2.0)  # sqrt(4) = 2
-        assert np.isclose(inv(2.0), 4.0)  # 2^2 = 4
+def _batch(n=6):
+    return create_simulator(ANCOVAConfig(), rng=np.random.default_rng(0)).sample(n)
 
 
-class TestANCOVAAdapterCreation:
-    def test_create_returns_adapter(self):
-        adapter = create_ancova_adapter()
-        # Should be a BayesFlow Adapter instance
-        assert hasattr(adapter, "__call__")
+def test_dataset_standardize_per_dataset():
+    x = np.random.default_rng(0).normal(3.0, 5.0, size=(4, 50))
+    z = DatasetStandardize().forward(x)
+    np.testing.assert_allclose(z.mean(axis=-1), 0.0, atol=1e-12)
+    np.testing.assert_allclose(z.std(axis=-1, ddof=1), 1.0, atol=1e-12)
 
-    def test_facade_import(self):
-        """Adapter functions should be importable from model facade."""
-        from bayesflow_rct.models.ancova.model import (
-            create_ancova_adapter as facade_create,
-            get_ancova_adapter_spec as facade_spec,
-        )
 
-        assert facade_create is create_ancova_adapter
-        assert facade_spec is get_ancova_adapter_spec
+def test_canonical_keys_and_shapes():
+    batch = _batch()
+    out = create_ancova_adapter()(batch)
+    n = batch["outcome"].shape[1]
+    assert set(out) == {
+        "inference_variables",
+        "summary_variables",
+        "inference_conditions",
+    }
+    assert out["inference_variables"].shape == (6, 1)
+    assert out["summary_variables"].shape == (6, n, 3)
+    assert out["inference_conditions"].shape == (6, 4)
+    assert all(v.dtype == np.float32 for v in out.values())
+
+
+def test_outcome_and_covariate_standardized():
+    s = create_ancova_adapter()(_batch())["summary_variables"]
+    for k in (0, 1):
+        np.testing.assert_allclose(s[..., k].mean(axis=1), 0.0, atol=1e-5)
+        np.testing.assert_allclose(s[..., k].std(axis=1, ddof=1), 1.0, atol=1e-5)
+
+
+def test_invariant_to_affine_rescaling_of_raw_data():
+    """Shifting/scaling the raw outcome must not change the network input."""
+    batch = _batch()
+    shifted = {**batch, "outcome": 7.0 + 3.0 * batch["outcome"]}
+    adapter = create_ancova_adapter()
+    np.testing.assert_allclose(
+        adapter(batch)["summary_variables"],
+        adapter(shifted)["summary_variables"],
+        atol=1e-5,
+    )
+
+
+def test_validation_batches_match_training_layout():
+    cond = {"N": 30, "p_alloc": 0.5, "prior_df": 3.0, "prior_scale": 0.7}
+    batch = simulate_condition(cond, 5, ANCOVAConfig(), np.random.default_rng(0))
+    out = create_ancova_adapter()(batch)
+    assert out["summary_variables"].shape == (5, 30, 3)
+    assert out["inference_conditions"].shape == (5, 4)
+
+
+def test_constant_covariate_raises():
+    import pytest
+
+    batch = _batch()
+    batch["covariate"] = np.zeros_like(batch["covariate"])
+    with pytest.raises(ValueError, match="zero"):
+        create_ancova_adapter()(batch)
+
+
+def test_integer_group_input_becomes_float32():
+    batch = _batch()
+    batch["group"] = batch["group"].astype(np.int64)
+    out = create_ancova_adapter()(batch)
+    assert out["summary_variables"].dtype == np.float32

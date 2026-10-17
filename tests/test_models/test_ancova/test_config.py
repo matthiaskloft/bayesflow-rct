@@ -4,7 +4,6 @@ import os
 
 os.environ.setdefault("KERAS_BACKEND", "torch")
 
-import pytest
 
 from bayesflow_rct.models.ancova.config import ANCOVAConfig, hpo_params_to_config
 
@@ -23,7 +22,7 @@ class TestHpoParamsToConfigCouplingFlow:
         "cf_dropout": 0.15,
         "initial_lr": 1e-3,
         "batch_size": 256,
-        "decay_rate": 0.9,
+        "min_lr": 1e-5,
     }
 
     def test_returns_ancova_config(self):
@@ -51,7 +50,7 @@ class TestHpoParamsToConfigCouplingFlow:
         config = hpo_params_to_config(self.COUPLING_FLOW_PARAMS)
         assert config.initial_lr == 1e-3
         assert config.batch_size == 256
-        assert config.decay_rate == 0.9
+        assert config.min_lr == 1e-5
 
 
 class TestHpoParamsToConfigFlowMatching:
