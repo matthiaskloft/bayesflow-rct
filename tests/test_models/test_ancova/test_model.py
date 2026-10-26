@@ -19,7 +19,7 @@ class TestANCOVAConfigDefaults:
 
     def test_default_flow_matching_dropout(self):
         config = ANCOVAConfig()
-        assert config.inference_dropout == 0.05
+        assert config.inference_dropout == 0.0
 
     def test_override_network_type(self):
         config = ANCOVAConfig(inference_network_type="CouplingFlow")

@@ -27,7 +27,8 @@ def test_train_and_validate_smoke():
         batches_per_epoch=3,
         batch_size=16,
         lr_warmup_steps=1,
-        validation_sims=16,
+        validation_n_grid=(20, 30),
+        validation_batch_size=4,
         early_stopping_window=1,
         early_stopping_patience=2,
     )

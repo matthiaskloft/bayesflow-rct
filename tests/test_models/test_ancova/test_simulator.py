@@ -107,3 +107,50 @@ def test_simulator_batch_shapes():
     assert batch["b_group"].shape == (4, 1)
     assert batch["covariate"].shape == (4, n)
     assert batch["group"].shape == (4, n)
+
+
+@pytest.mark.parametrize(
+    ("share", "alpha", "small", "large"),
+    [(1.0, 1.0, 0.100, 0.177), (0.7, 0.7, 0.143, 0.243)],
+)
+def test_sample_n_shares(share, alpha, small, large):
+    """Shares at N < 30 and N >= 500: pure log-uniform default and v3 mixture."""
+    from bayesflow_rct.models.ancova.simulator import sample_n
+
+    config = ANCOVAConfig(n_log_share=share, n_log_alpha=alpha)
+    rng = np.random.default_rng(0)
+    n = np.array([sample_n(config, rng) for _ in range(20000)])
+    assert n.min() >= config.n_min and n.max() <= config.n_max
+    assert abs((n < 30).mean() - small) < 0.01
+    assert abs((n >= 500).mean() - large) < 0.01
+
+
+class TestSimulateBatch:
+    COND = {"N": 40, "p_alloc": 0.7, "prior_df": 3.0, "prior_scale": 0.7}
+
+    def test_matches_looped_prior(self):
+        """Vectorized draws have the same b_group and R² distributions."""
+        from bayesflow_rct.models.ancova.simulator import simulate_batch
+
+        config = ANCOVAConfig()
+        vec = simulate_batch(config, np.random.default_rng(0), 3000, self.COND)
+        rng = np.random.default_rng(1)
+        loop = [prior(3.0, 0.7, config, rng) for _ in range(3000)]
+        b_loop = np.array([p["b_group"][0] for p in loop])
+        assert stats.ks_2samp(vec["b_group"][:, 0], b_loop).pvalue > 0.01
+        r2 = vec["b_covariate"][:, 0] ** 2 / (1 + vec["b_covariate"][:, 0] ** 2)
+        beta = stats.beta(config.r2_beta_a, config.r2_beta_b)
+        assert stats.kstest(r2, beta.cdf).pvalue > 0.01
+
+    def test_exact_allocation_and_residual_sd(self):
+        from bayesflow_rct.models.ancova.simulator import simulate_batch
+
+        out = simulate_batch(ANCOVAConfig(), np.random.default_rng(2), 500, self.COND)
+        assert np.all(out["group"].sum(axis=1) == round(40 * 0.7))
+        resid = (
+            out["outcome"]
+            - out["b_group"] * out["group"]
+            - out["b_covariate"] * out["covariate"]
+        )
+        assert abs(resid.std() - 1.0) < 0.02
+        assert out["N"] == 40

@@ -128,3 +128,10 @@ bayesflow-rct/
 - `bf.BasicWorkflow(optimizer=...)` does not compile the approximator — call `workflow.approximator.compile(optimizer=...)` yourself
 - `optimize(validation_conditions=...)` calls `simulator.sample(conditions=...)`, which the ANCOVA simulator does not support — build the grid with `validation.build_validation_dataset` and pass it via `ObjectiveConfig(validation_data=...)`
 - Data are standardized per dataset inside the adapter (`DatasetStandardize`); callers pass raw data. The prior spec lives in `docs/ancova_prior_spec.md`
+- FlowMatching sampling: default adaptive `tsit5` is ~6-15x slower than fixed steps; config defaults to `tsit5`/8 (bayesflow-irt integrator study). Optimal transport (Sinkhorn, 100 iters) roughly doubles train-step time
+- Use `adapter.sqrt`/`adapter.log` instead of `adapter.apply(forward=np.sqrt, ...)`: numpy ufuncs break `approximator.save()`
+- The worktree `.venv` needs the CUDA torch wheel (`--index-url https://download.pytorch.org/whl/cu128`); the system torch is CPU-only
+- On Windows, torch's CUDA memory functions do not work properly. For memory-sensitive GPU work (OOM handling, memory profiling), a venv inside WSL may be needed, as in bayesflow-irt
+- WSL venv: `~/venvs/bfrct` (Ubuntu, torch 2.11.0+cu128, editable install of this worktree). WSL has no network and no passwordless sudo (`python3-venv` missing), so it was built with `python3 -m venv --without-pip` and an offline install (`--no-index --find-links /mnt/d/wsl_stage/bfrct_wheels`) from Linux wheels that Windows pip downloaded (`pip download --platform manylinux... --python-version 3.12`). Windows-side resolution skips torch's Linux-only CUDA deps; fetch them explicitly from the PyTorch cu128 index
+- An empty `CUDA_VISIBLE_DEVICES=` does not hide the GPU from Git Bash on Windows; use `CUDA_VISIBLE_DEVICES=-1` to force CPU
+- `BasicWorkflow.fit_online(validation_data=int)` draws the validation set with a single `simulator.sample` call, so it shares one N. Use `training.MultiSizeValidation` instead

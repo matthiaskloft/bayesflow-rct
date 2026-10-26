@@ -135,6 +135,17 @@ def likelihood(
     return dict(outcome=outcome, covariate=covariate, group=group)
 
 
+def sample_n(config: ANCOVAConfig, rng: np.random.Generator) -> int:
+    """Draw N from the tilted-log-uniform / uniform mixture (see config)."""
+    if rng.uniform() < config.n_log_share:
+        return int(
+            loguniform_int(
+                config.n_min, config.n_max, alpha=config.n_log_alpha, rng=rng
+            )
+        )
+    return int(rng.integers(config.n_min, config.n_max + 1))
+
+
 def meta(config: ANCOVAConfig, rng: np.random.Generator) -> dict:
     """
     Sample design conditions and prior hyperparameters (one per batch).
@@ -144,7 +155,7 @@ def meta(config: ANCOVAConfig, rng: np.random.Generator) -> dict:
     dict with ``N``, ``p_alloc``, ``prior_df``, ``prior_scale``.
     """
     return dict(
-        N=int(round(loguniform_int(config.n_min, config.n_max, rng=rng))),
+        N=sample_n(config, rng),
         p_alloc=rng.uniform(config.p_alloc_min, config.p_alloc_max),
         prior_df=1.0
         + rng.lognormal(np.log(config.prior_df_median_shifted), config.prior_df_sdlog),
@@ -186,6 +197,74 @@ def create_meta_fn(config: ANCOVAConfig, rng: np.random.Generator) -> Callable:
     return _meta
 
 
+def simulate_batch(
+    config: ANCOVAConfig,
+    rng: np.random.Generator,
+    n_sims: int,
+    condition: dict | None = None,
+) -> dict:
+    """
+    Vectorized batch simulation: one ``condition`` (default: a :func:`meta`
+    draw) shared by ``n_sims`` datasets, parameters drawn per dataset.
+
+    Same distribution as looping :func:`prior` and :func:`likelihood`, in
+    one numpy pass (the per-dataset Python loop dominated simulation time).
+
+    Returns
+    -------
+    dict with ``b_group``/``b_covariate`` ``(n_sims, 1)``, data
+    ``(n_sims, N)`` and the condition's scalar values.
+    """
+    cond = dict(condition) if condition is not None else meta(config, rng)
+    n_total = int(cond["N"])
+    b_group = sample_truncated_t(
+        float(cond["prior_df"]),
+        float(cond["prior_scale"]),
+        config.d_bound,
+        rng,
+        size=n_sims,
+    )
+    r2 = rng.beta(config.r2_beta_a, config.r2_beta_b, size=n_sims)
+    sign = rng.choice([-1.0, 1.0], size=n_sims)
+    b_covariate = sign * np.sqrt(r2 / (1.0 - r2))
+
+    n_treat = int(np.clip(round(n_total * float(cond["p_alloc"])), 1, n_total - 1))
+    perm = np.argsort(rng.random((n_sims, n_total)), axis=1)
+    group = np.zeros((n_sims, n_total))
+    np.put_along_axis(group, perm[:, :n_treat], 1.0, axis=1)
+    covariate = rng.standard_normal((n_sims, n_total))
+    outcome = (
+        b_group[:, None] * group
+        + b_covariate[:, None] * covariate
+        + rng.standard_normal((n_sims, n_total))
+    )
+    return dict(
+        b_group=b_group[:, None],
+        b_covariate=b_covariate[:, None],
+        outcome=outcome,
+        covariate=covariate,
+        group=group,
+        **cond,
+    )
+
+
+class ANCOVASimulator(bf.simulators.Simulator):
+    """Batch-vectorized ANCOVA simulator (see :func:`simulate_batch`)."""
+
+    def __init__(self, config: ANCOVAConfig, rng: np.random.Generator):
+        self.config = config
+        self.rng = rng
+
+    def sample(self, batch_shape, **kwargs) -> dict:
+        if kwargs:
+            raise TypeError(
+                f"ANCOVASimulator.sample does not support {sorted(kwargs)}; "
+                "use validation.simulate_condition for fixed conditions"
+            )
+        n_sims = int(np.prod(batch_shape))
+        return simulate_batch(self.config, self.rng, n_sims)
+
+
 def create_simulator(
     config: ANCOVAConfig, rng: np.random.Generator | None = None
 ) -> bf.simulators.Simulator:
@@ -193,7 +272,8 @@ def create_simulator(
     Create the BayesFlow simulator for the ANCOVA model.
 
     Meta conditions (N, p_alloc, prior hyperparameters) are drawn once per
-    batch, so all datasets in a batch share the same N.
+    batch, so all datasets in a batch share the same N. Simulation is
+    vectorized over the batch (:class:`ANCOVASimulator`).
 
     Parameters
     ----------
@@ -209,7 +289,4 @@ def create_simulator(
     if rng is None:
         rng = np.random.default_rng()
 
-    return bf.simulators.make_simulator(
-        [create_prior_fn(config, rng), create_likelihood_fn(rng)],
-        meta_fn=create_meta_fn(config, rng),
-    )
+    return ANCOVASimulator(config, rng)

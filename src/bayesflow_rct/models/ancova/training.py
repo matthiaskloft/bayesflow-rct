@@ -21,10 +21,11 @@ from bayesflow_rct.models.ancova.config import (
     build_networks,
     hpo_params_to_config,
 )
-from bayesflow_rct.models.ancova.simulator import create_simulator
+from bayesflow_rct.models.ancova.simulator import create_simulator, meta
 from bayesflow_rct.models.ancova.validation import (
     build_validation_dataset,
     run_validation,
+    simulate_condition,
 )
 
 if TYPE_CHECKING:
@@ -96,26 +97,68 @@ def create_ancova_workflow(
     return workflow
 
 
+class MultiSizeValidation(keras.utils.PyDataset):
+    """
+    Fixed, pre-adapted validation batches spanning ``config.validation_n_grid``.
+
+    Each batch has one N (sets must share a shape) and its own draw of
+    ``p_alloc``/``prior_df``/``prior_scale`` from :func:`meta`, mirroring the
+    training batches.
+    """
+
+    def __init__(self, config: ANCOVAConfig, adapter: Adapter, seed: int = 7):
+        super().__init__()
+        rng = np.random.default_rng(seed)
+        self.batches = []
+        for n_total in config.validation_n_grid:
+            for _ in range(int(config.validation_batches_per_n)):
+                cond = {**meta(config, rng), "N": int(n_total)}
+                sims = simulate_condition(
+                    cond, int(config.validation_batch_size), config, rng
+                )
+                self.batches.append(adapter(sims))
+
+    def __len__(self) -> int:
+        return len(self.batches)
+
+    def __getitem__(self, index: int) -> dict[str, np.ndarray]:
+        return self.batches[index]
+
+
 def train_ancova_workflow(
     workflow: bf.BasicWorkflow,
     config: ANCOVAConfig,
     callbacks: list | None = None,
 ) -> keras.callbacks.History:
     """
-    Train online with moving-average early stopping on the validation loss.
+    Train online for a fixed budget, validating on :class:`MultiSizeValidation`.
+
+    Bypasses ``BasicWorkflow.fit_online``, which wraps validation data in a
+    single-shape ``OfflineDataset``. Moving-average early stopping is added
+    only if ``config.use_early_stopping``.
     """
-    early_stop = hpo.MovingAverageEarlyStopping(
-        monitor="val_loss",
-        window=int(config.early_stopping_window),
-        patience=int(config.early_stopping_patience),
-        restore_best_weights=True,
-    )
-    return workflow.fit_online(
-        epochs=int(config.epochs),
+    callbacks = list(callbacks or [])
+    if config.use_early_stopping:
+        callbacks.insert(
+            0,
+            hpo.MovingAverageEarlyStopping(
+                monitor="val_loss",
+                window=int(config.early_stopping_window),
+                patience=int(config.early_stopping_patience),
+                restore_best_weights=True,
+            ),
+        )
+    dataset = bf.datasets.OnlineDataset(
+        simulator=workflow.simulator,
         batch_size=int(config.batch_size),
-        num_batches_per_epoch=int(config.batches_per_epoch),
-        validation_data=int(config.validation_sims),
-        callbacks=[early_stop, *(callbacks or [])],
+        num_batches=int(config.batches_per_epoch),
+        adapter=workflow.adapter,
+    )
+    return workflow.approximator.fit(
+        dataset=dataset,
+        epochs=int(config.epochs),
+        validation_data=MultiSizeValidation(config, workflow.adapter),
+        callbacks=callbacks,
     )
 
 

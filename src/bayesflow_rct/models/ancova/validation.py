@@ -25,7 +25,7 @@ PARAM_KEYS = ["b_group"]
 #: Cauchy / rctbayespower default t(3) / near-Normal priors, and sceptical /
 #: JZS-default / wide prior scales.
 DEFAULT_CONDITION_GRID: dict[str, list[Any]] = {
-    "N": [20, 50, 200, 1000],
+    "N": [20, 30, 50, 200, 1000],
     "p_alloc": [0.5, 0.8],
     "prior_df": [1.0, 3.0, 30.0],
     "prior_scale": [0.3, 0.7, 2.0],

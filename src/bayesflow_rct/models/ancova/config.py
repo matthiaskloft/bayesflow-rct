@@ -26,7 +26,16 @@ class ANCOVAConfig:
     Parameters
     ----------
     n_min, n_max : int
-        Log-uniform sample-size range.
+        Sample-size range.
+    n_log_alpha, n_log_share : float
+        N is drawn from a mixture: with probability ``n_log_share`` from a
+        log-uniform tilted toward small N (``loguniform_int`` with
+        ``alpha = n_log_alpha``, < 1 favours small N), otherwise uniformly
+        over the integers. The tilt adds small-N batches; the uniform part
+        keeps the large-N end trained. Default 1/1 is pure log-uniform: with
+        two seeds each, the 70/30 mixture with tilt 0.7 (bayesflow-irt
+        ``"mixed"`` sampler, EXP-0016) was not better calibrated, and 40k
+        steps mattered more than the sampler.
     p_alloc_min, p_alloc_max : float
         Uniform range of the treatment allocation ratio.
     prior_df_median_shifted, prior_df_sdlog : float
@@ -57,6 +66,11 @@ class ANCOVAConfig:
         Dropout rate for the inference network.
     inference_use_optimal_transport : bool
         Whether to use optimal transport in FlowMatching.
+    inference_integrate_method, inference_integrate_steps : str, int or str
+        FlowMatching ODE solver used for sampling. Default fixed-step
+        ``tsit5``/8, which in the bayesflow-irt integrator study
+        (``tarp_runs/integrator_steps``) matched 16/32 steps; use
+        ``"adaptive"`` steps for spot checks.
     initial_lr : float
         Peak learning rate (Adam), reached after ``lr_warmup_steps``.
     min_lr : float
@@ -69,17 +83,24 @@ class ANCOVAConfig:
         Maximum training epochs.
     batches_per_epoch : int
         Batches per epoch for online training.
-    validation_sims : int
-        Number of simulations for online validation.
+    validation_n_grid, validation_batch_size, validation_batches_per_n
+        In-training validation set: ``validation_batches_per_n`` fixed
+        batches per sample size, each with its own design/prior draw, so the
+        validation loss covers the whole N range (a single
+        ``simulator.sample`` call would share one N).
     early_stopping_patience : int
         Epochs without improvement before stopping.
     early_stopping_window : int
         Moving-average window for early stopping.
+    use_early_stopping : bool
+        Off by default: flow-matching loss is noisy, so train a fixed budget.
     """
 
     # --- Simulation / prior (docs/ancova_prior_spec.md) ---
     n_min: int = 20
     n_max: int = 1000
+    n_log_alpha: float = 1.0
+    n_log_share: float = 1.0
     p_alloc_min: float = 0.4
     p_alloc_max: float = 0.9
     prior_df_median_shifted: float = 5.0
@@ -91,29 +112,34 @@ class ANCOVAConfig:
     r2_beta_b: float = 2.0
 
     # --- Summary network (discoverable by HPO) ---
-    summary_dim: int = 10
+    summary_dim: int = 4
     summary_depth: int = 3
     summary_width: int = 64
-    summary_dropout: float = 0.05
+    summary_dropout: float = 0.0
 
     # --- Inference network (discoverable by HPO) ---
     inference_network_type: str = "FlowMatching"
     inference_depth: int = 7
     inference_widths: tuple[int, ...] = (128, 128, 128)
     inference_hidden_sizes: tuple[int, ...] = (128, 128)
-    inference_dropout: float = 0.05
-    inference_use_optimal_transport: bool = True
+    inference_dropout: float = 0.0
+    inference_use_optimal_transport: bool = False
+    inference_integrate_method: str = "tsit5"
+    inference_integrate_steps: int | str = 8
 
     # --- Training (discoverable by HPO) ---
-    initial_lr: float = 1e-3
-    min_lr: float = 1e-4
-    lr_warmup_steps: int = 25
-    batch_size: int = 256
-    epochs: int = 50
+    initial_lr: float = 5e-4
+    min_lr: float = 1e-5
+    lr_warmup_steps: int = 500
+    batch_size: int = 64
+    epochs: int = 400
     batches_per_epoch: int = 100
-    validation_sims: int = 1000
     early_stopping_patience: int = 10
     early_stopping_window: int = 5
+    use_early_stopping: bool = False
+    validation_n_grid: tuple[int, ...] = (20, 30, 50, 100, 200, 500, 1000)
+    validation_batch_size: int = 64
+    validation_batches_per_n: int = 4
 
 
 def hpo_params_to_config(params: dict[str, Any]) -> ANCOVAConfig:
@@ -224,6 +250,10 @@ def build_networks(
                 "dropout": float(config.inference_dropout),
             },
             use_optimal_transport=bool(config.inference_use_optimal_transport),
+            integrate_kwargs={
+                "method": config.inference_integrate_method,
+                "steps": config.inference_integrate_steps,
+            },
         )
     elif config.inference_network_type == "CouplingFlow":
         inference_net = bf.networks.CouplingFlow(
