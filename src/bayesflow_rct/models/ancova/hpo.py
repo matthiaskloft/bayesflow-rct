@@ -16,7 +16,10 @@ from bayesflow_rct.models.ancova.training import (
     OBJECTIVE_METRICS,
     create_ancova_objective,
 )
-from bayesflow_rct.models.ancova.validation import build_validation_dataset
+from bayesflow_rct.models.ancova.validation import (
+    DEFAULT_CONDITION_GRID,
+    build_validation_dataset,
+)
 
 VALIDATION_DATA_DIR = Path("data") / "ancova_validation"
 
@@ -30,10 +33,12 @@ def get_or_create_validation_data(
     """Load cached ANCOVA validation data or generate and cache it once.
 
     The cache lives in a subdirectory keyed by a hash of every generation
-    input (config, seed, sims per condition), so changed inputs regenerate.
+    input (config, condition grid, seed, sims per condition), so changed
+    inputs regenerate.
     """
+    config = config or ANCOVAConfig()
     key = json.dumps(
-        [asdict(config or ANCOVAConfig()), seed, sims_per_condition],
+        [asdict(config), DEFAULT_CONDITION_GRID, seed, sims_per_condition],
         sort_keys=True,
         default=str,
     )
