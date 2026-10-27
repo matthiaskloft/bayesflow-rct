@@ -147,6 +147,17 @@ def load_config(path: Path, **overrides) -> ANCOVAConfig:
     return ANCOVAConfig(**(saved | overrides))
 
 
+def load_trained(workflow, out: Path) -> None:
+    """Build ``workflow.approximator`` and load the weights saved in ``out``."""
+    workflow.approximator.build_from_data(
+        workflow.adapter(workflow.simulator.sample(2))
+    )
+    full = out / "approximator.keras"
+    workflow.approximator.load_weights(
+        full if full.exists() else out / "approximator.weights.h5"
+    )
+
+
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--epochs", type=int, default=ANCOVAConfig.epochs)
@@ -191,13 +202,7 @@ def main() -> None:
     tag = f"{args.integrate_method}_{steps}"
 
     if args.validate_only:
-        adapted = workflow.adapter(workflow.simulator.sample(2))
-        workflow.approximator.build_from_data(adapted)
-        full = out / "approximator.keras"
-        if full.exists():
-            workflow.approximator.load_weights(full)
-        else:
-            workflow.approximator.load_weights(out / "approximator.weights.h5")
+        load_trained(workflow, out)
     else:
         train(workflow, config, out)
 
@@ -225,8 +230,13 @@ def main() -> None:
 
 
 def train(workflow, config: ANCOVAConfig, out: Path) -> None:
-    """Train, then save the approximator (weights only if full save fails)."""
-    (out / "config.json").write_text(json.dumps(asdict(config), indent=2))
+    """Train, then save the approximator (weights only if full save fails).
+
+    Old artifacts are removed first and ``config.json`` is written last, so
+    a reused ``--out`` never pairs a new config with an old checkpoint.
+    """
+    for name in ("config.json", "approximator.keras", "approximator.weights.h5"):
+        (out / name).unlink(missing_ok=True)
     t0 = time.perf_counter()
     history = train_ancova_workflow(workflow, config)
     train_s = time.perf_counter() - t0
@@ -239,6 +249,7 @@ def train(workflow, config: ANCOVAConfig, out: Path) -> None:
         print(f"full save failed ({exc!r}); saving weights only")
         (out / "approximator.keras").unlink(missing_ok=True)
         workflow.approximator.save_weights(out / "approximator.weights.h5")
+    (out / "config.json").write_text(json.dumps(asdict(config), indent=2))
 
 
 if __name__ == "__main__":

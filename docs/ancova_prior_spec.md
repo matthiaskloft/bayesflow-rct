@@ -12,7 +12,7 @@ estimates a single target, Cohen's `d`.
 
 ```r
 # --- design (conditions, observed) ---
-N        ~ 0.7 · tilted-log-uniform-int(20, 1000; alpha 0.7) + 0.3 · uniform-int(20, 1000)
+N        ~ log-uniform-int(20, 1000)       # optional 70/30 tilted mixture: see §2
 p_alloc  ~ Uniform(0.4, 0.9)
 group    ~ exactly round(N * p_alloc) treated (fixed allocation)
 

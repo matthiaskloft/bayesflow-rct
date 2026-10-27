@@ -7,7 +7,8 @@ v2 model (Cohen's d, sufficient-statistic conditions).
 
 Amortized NPE pays off when per-fit inference is slow or fragile and no small
 set of exact sufficient statistics does the work. ANCOVA turned out to be easy
-on the second point: three statistics plus N and n1 determine the posterior
+on the second point: for the standardized normal ANCOVA outcome model, three
+statistics plus N and n1 determine the posterior of d
 (`docs/ancova_prior_spec.md`, section 5). The next model should be genuinely
 harder.
 

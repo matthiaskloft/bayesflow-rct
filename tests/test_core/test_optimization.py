@@ -58,7 +58,13 @@ def test_get_or_create_validation_data_generates_and_saves(monkeypatch, tmp_path
         ANCOVAConfig(), seed=7, path=tmp_path
     )
     assert result == ("data", 7)
-    assert saved == {"dataset": ("data", 7), "path": tmp_path}
+    assert saved["dataset"] == ("data", 7)
+    assert saved["path"].parent == tmp_path
+
+    # Any changed generation input gets its own cache directory.
+    first = saved["path"]
+    ancova_hpo.get_or_create_validation_data(ANCOVAConfig(), seed=8, path=tmp_path)
+    assert saved["path"] != first
 
 
 def test_run_ancova_hpo_builds_objective_and_study(monkeypatch):

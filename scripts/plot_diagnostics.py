@@ -23,11 +23,12 @@ import matplotlib
 
 matplotlib.use("Agg")
 import numpy as np
+from train_baseline import load_config, load_trained
 
 from bayesflow_rct.models.ancova.config import ANCOVAConfig
 from bayesflow_rct.models.ancova.simulator import meta
+from bayesflow_rct.models.ancova.training import create_ancova_workflow
 from bayesflow_rct.models.ancova.validation import simulate_condition
-from train_baseline import load_config
 
 
 def simulate_at_n(n_total, n_sims, config, rng):
@@ -51,9 +52,14 @@ def main() -> None:
     out = args.model / "plots"
     out.mkdir(parents=True, exist_ok=True)
 
-    approximator = keras.saving.load_model(args.model / "approximator.keras")
     saved = args.model / "config.json"
     config = load_config(saved) if saved.exists() else ANCOVAConfig()
+    if (args.model / "approximator.keras").exists():
+        approximator = keras.saving.load_model(args.model / "approximator.keras")
+    else:  # weights-only save: rebuild from the saved config
+        workflow = create_ancova_workflow(config)
+        load_trained(workflow, args.model)
+        approximator = workflow.approximator
     rng = np.random.default_rng(args.seed)
     for n_total in args.n_grid:
         sims = simulate_at_n(n_total, args.sims, config, rng)

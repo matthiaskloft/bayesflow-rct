@@ -2,6 +2,9 @@
 
 from __future__ import annotations
 
+import hashlib
+import json
+from dataclasses import asdict
 from pathlib import Path
 
 import bayesflow_hpo as hpo
@@ -24,8 +27,17 @@ def get_or_create_validation_data(
     path: str | Path = VALIDATION_DATA_DIR,
     sims_per_condition: int = 200,
 ) -> hpo.ValidationDataset:
-    """Load cached ANCOVA validation data or generate and cache it once."""
-    dataset_path = Path(path)
+    """Load cached ANCOVA validation data or generate and cache it once.
+
+    The cache lives in a subdirectory keyed by a hash of every generation
+    input (config, seed, sims per condition), so changed inputs regenerate.
+    """
+    key = json.dumps(
+        [asdict(config or ANCOVAConfig()), seed, sims_per_condition],
+        sort_keys=True,
+        default=str,
+    )
+    dataset_path = Path(path) / hashlib.sha256(key.encode()).hexdigest()[:16]
     try:
         return hpo.load_validation_dataset(dataset_path)
     except FileNotFoundError:
