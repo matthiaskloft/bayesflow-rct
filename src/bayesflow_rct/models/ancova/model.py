@@ -12,25 +12,19 @@ All implementations have been split into focused modules:
 This file re-exports the public API for backward compatibility.
 """
 
-# Config
-# Adapter
 from bayesflow_rct.models.ancova.adapter import (  # noqa: F401
+    DatasetStandardize,
     create_ancova_adapter,
-    get_ancova_adapter_spec,
 )
 from bayesflow_rct.models.ancova.config import (  # noqa: F401
     ANCOVAConfig,
     build_networks,
     hpo_params_to_config,
 )
-
-# Metadata
 from bayesflow_rct.models.ancova.metadata import (  # noqa: F401
     get_model_metadata,
     save_model_with_metadata,
 )
-
-# Simulator
 from bayesflow_rct.models.ancova.simulator import (  # noqa: F401
     create_likelihood_fn,
     create_meta_fn,
@@ -39,24 +33,21 @@ from bayesflow_rct.models.ancova.simulator import (  # noqa: F401
     likelihood,
     meta,
     prior,
-    simulate_cond_batch,
+    sample_truncated_t,
 )
-
-# Training
 from bayesflow_rct.models.ancova.training import (  # noqa: F401
     create_ancova_objective,
     create_ancova_training_functions,
+    create_ancova_workflow,
     create_ancova_workflow_components,
+    make_optimizer,
+    train_ancova_workflow,
 )
-
-# Validation
 from bayesflow_rct.models.ancova.validation import (  # noqa: F401
+    DEFAULT_CONDITION_GRID,
     build_validation_dataset,
-    create_validation_grid,
-    make_condition_infer_fn,
-    make_infer_fn,
-    make_simulate_fn,
-    run_condition_grid_validation,
+    run_validation,
+    simulate_condition,
 )
 
 
@@ -88,23 +79,24 @@ __all__ = [
     "prior",
     "likelihood",
     "meta",
-    "simulate_cond_batch",
+    "sample_truncated_t",
     "create_prior_fn",
     "create_likelihood_fn",
     "create_meta_fn",
     "create_simulator",
     # Adapter
-    "get_ancova_adapter_spec",
+    "DatasetStandardize",
     "create_ancova_adapter",
     # Validation
-    "create_validation_grid",
-    "make_simulate_fn",
-    "make_condition_infer_fn",
-    "make_infer_fn",
-    "run_condition_grid_validation",
+    "DEFAULT_CONDITION_GRID",
+    "simulate_condition",
     "build_validation_dataset",
+    "run_validation",
     # Training
     "create_ancova_workflow_components",
+    "create_ancova_workflow",
+    "make_optimizer",
+    "train_ancova_workflow",
     "create_ancova_objective",
     "create_ancova_training_functions",
     # Metadata

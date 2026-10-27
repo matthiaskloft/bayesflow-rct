@@ -120,9 +120,18 @@ bayesflow-rct/
 - bayesflow-hpo `get_workflow_metadata()` stores validation under `"validation"` key, not `"validation_results"`
 - bayesflow-hpo removed `AdapterSpec` class — use BayesFlow native `Adapter` fluent API instead
 - bayesflow-hpo renamed `compute_metrics()` → `compute_condition_metrics()` and `summarize_metrics()` → `aggregate_condition_rows()`
-- `run_condition_grid_validation` returns `{"condition_rows": [...], "summary": {...}}` — not the old `{"metrics": {...}}` format
-- Plotting functions like `plot_sbc_diagnostics` expect per-simulation data from `run_validation_pipeline()`, not per-condition aggregates from `run_condition_grid_validation`
 - HPO trial params use prefixed keys (`ds_*`, `cf_*`, `fm_*`) that don't match `ANCOVAConfig` field names — use `hpo_params_to_config()` to map them, never filter with `if k in __dataclass_fields__`
-- Keras `ExponentialDecay.decay_steps` counts optimizer steps (batches), not samples — use `batches_per_epoch`, not `batch_size * batches_per_epoch`
 - FlowMatching uses `inference_widths`, CouplingFlow uses `inference_depth` + `inference_hidden_sizes` — don't mix them up
 - Keras is pinned to `<3.13` for BayesFlow 2.0.7 compatibility — don't bump without testing
+- Keras LR schedules (`CosineDecay`, `ExponentialDecay`) count optimizer steps (batches), not samples; with `warmup_target`, `CosineDecay.alpha` is a fraction of `warmup_target`
+- bayesflow-hpo is pinned to PyPI releases (`>=0.6.0,<0.7`); its `builders` no longer export `build_workflow`/`build_*_network` — build networks with `bf.networks` directly (see `config.build_networks`)
+- `bf.BasicWorkflow(optimizer=...)` does not compile the approximator — call `workflow.approximator.compile(optimizer=...)` yourself
+- `optimize(validation_conditions=...)` calls `simulator.sample(conditions=...)`, which the ANCOVA simulator does not support — build the grid with `validation.build_validation_dataset` and pass it via `ObjectiveConfig(validation_data=...)`
+- Data are standardized per dataset inside the adapter (`DatasetStandardize`); callers pass raw data. The prior spec lives in `docs/ancova_prior_spec.md`
+- FlowMatching sampling: default adaptive `tsit5` is ~6-15x slower than fixed steps; config defaults to `tsit5`/8 (bayesflow-irt integrator study). Optimal transport (Sinkhorn, 100 iters) roughly doubles train-step time
+- Use `adapter.sqrt`/`adapter.log` instead of `adapter.apply(forward=np.sqrt, ...)`: numpy ufuncs break `approximator.save()`
+- The worktree `.venv` needs the CUDA torch wheel (`--index-url https://download.pytorch.org/whl/cu128`); the system torch is CPU-only
+- On Windows, torch's CUDA memory functions do not work properly. For memory-sensitive GPU work (OOM handling, memory profiling), a venv inside WSL may be needed, as in bayesflow-irt
+- WSL venv: `~/venvs/bfrct` (Ubuntu, torch 2.11.0+cu128, editable install of this worktree). WSL has no network and no passwordless sudo (`python3-venv` missing), so it was built with `python3 -m venv --without-pip` and an offline install (`--no-index --find-links /mnt/d/wsl_stage/bfrct_wheels`) from Linux wheels that Windows pip downloaded (`pip download --platform manylinux... --python-version 3.12`). Windows-side resolution skips torch's Linux-only CUDA deps; fetch them explicitly from the PyTorch cu128 index
+- An empty `CUDA_VISIBLE_DEVICES=` does not hide the GPU from Git Bash on Windows; use `CUDA_VISIBLE_DEVICES=-1` to force CPU
+- `BasicWorkflow.fit_online(validation_data=int)` draws the validation set with a single `simulator.sample` call, so it shares one N. Use `training.MultiSizeValidation` instead

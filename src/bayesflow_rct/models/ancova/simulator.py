@@ -1,8 +1,12 @@
 """
 ANCOVA Simulator Functions.
 
-Prior, likelihood, meta-parameter sampling, and factory functions
-for creating BayesFlow simulators.
+Prior, likelihood, meta-parameter sampling, and factory functions for the
+2-arm ANCOVA model specified in ``docs/ancova_prior_spec.md``.
+
+Data are simulated on the natural scale (residual SD = 1), so the target
+``b_group`` is Cohen's d. Standardization to mean 0 / SD 1 happens in the
+adapter, identically for simulated and real data.
 """
 
 from __future__ import annotations
@@ -11,9 +15,48 @@ from collections.abc import Callable
 
 import bayesflow as bf
 import numpy as np
+from scipy import stats
 
-from bayesflow_rct.core.utils import loguniform_int, sample_t_or_normal
+from bayesflow_rct.core.utils import loguniform_int
 from bayesflow_rct.models.ancova.config import ANCOVAConfig
+
+
+def sample_truncated_t(
+    df: float,
+    scale: float,
+    bound: float,
+    rng: np.random.Generator,
+    size: int | None = None,
+) -> np.ndarray:
+    """
+    Sample ``scale * t(df)`` truncated to ``[-bound, bound]`` by inverse CDF.
+
+    Exact and rejection-free; computed in float64 so the CDF bounds stay
+    distinguishable for very heavy tails or wide scales.
+
+    Parameters
+    ----------
+    df : float
+        Degrees of freedom of the Student-t (``>= 1`` per the prior spec).
+    scale : float
+        Scale of the Student-t.
+    bound : float
+        Symmetric truncation bound on the scaled draw.
+    rng : np.random.Generator
+        Random number generator.
+    size : int, optional
+        Number of draws. ``None`` returns a 0-d array.
+
+    Returns
+    -------
+    np.ndarray
+        Draws in ``[-bound, bound]``.
+    """
+    z = float(bound) / float(scale)
+    lo = stats.t.cdf(-z, df)
+    hi = stats.t.cdf(z, df)
+    u = rng.uniform(lo, hi, size=size)
+    return np.clip(float(scale) * stats.t.ppf(u, df), -bound, bound)
 
 
 def prior(
@@ -23,39 +66,47 @@ def prior(
     rng: np.random.Generator,
 ) -> dict:
     """
-    Sample parameters for model: outcome = b_covariate*x + b_group*group + noise.
+    Sample the treatment effect and the covariate nuisance parameter.
+
+    ``b_group ~ prior_scale * t(prior_df)`` truncated to ``|d| <= d_bound``;
+    the covariate's share of non-treatment variance ``R2 ~ Beta(a, b)`` is
+    mapped to ``b_covariate = ±sqrt(R2 / (1 - R2))``.
 
     Parameters
     ----------
-    prior_df : float
-        Degrees of freedom for b_group prior. If df <= 0 or > 100, uses Normal.
-    prior_scale : float
-        Scale parameter for b_group prior distribution.
+    prior_df, prior_scale : float
+        Hyperparameters of the ``b_group`` prior (sampled in :func:`meta`).
     config : ANCOVAConfig
-        Configuration with b_covariate_scale.
+        Configuration with ``d_bound`` and the R² Beta parameters.
     rng : np.random.Generator
-        Random number generator for reproducibility.
+        Random number generator.
 
     Returns
     -------
-    dict with b_covariate and b_group arrays (shape (1,))
+    dict with ``b_group`` and ``b_covariate`` arrays of shape (1,).
     """
-    b_covariate = rng.normal(loc=0, scale=config.b_covariate_scale, size=1).astype(
-        np.float64
-    )
+    df = float(np.asarray(prior_df).flat[0])
+    scale = float(np.asarray(prior_scale).flat[0])
+    b_group = sample_truncated_t(df, scale, config.d_bound, rng, size=1)
 
-    b_group = np.array(
-        [
-            sample_t_or_normal(
-                df=float(np.asarray(prior_df).flat[0]),
-                scale=float(np.asarray(prior_scale).flat[0]),
-                rng=rng,
-            )
-        ],
-        dtype=np.float64,
-    )
+    r2 = rng.beta(config.r2_beta_a, config.r2_beta_b)
+    sign = rng.choice([-1.0, 1.0])
+    b_covariate = np.array([sign * np.sqrt(r2 / (1.0 - r2))])
 
-    return dict(b_covariate=b_covariate, b_group=b_group)
+    return dict(b_group=b_group, b_covariate=b_covariate)
+
+
+def allocate(n_total: int, p_alloc: float, rng: np.random.Generator) -> np.ndarray:
+    """
+    Fixed allocation: exactly ``round(N * p_alloc)`` treated, in random order.
+
+    At least one subject is kept in each arm.
+    """
+    n_treat = int(np.clip(round(n_total * p_alloc), 1, n_total - 1))
+    group = np.zeros(n_total)
+    group[:n_treat] = 1.0
+    rng.shuffle(group)
+    return group
 
 
 def likelihood(
@@ -66,153 +117,52 @@ def likelihood(
     rng: np.random.Generator,
 ) -> dict:
     """
-    Simulate 2-arm ANCOVA data with fixed sigma = 1.
+    Simulate raw 2-arm ANCOVA data with residual SD = 1.
 
-    Model: outcome = b_covariate * covariate + b_group * group + noise
-
-    Parameters
-    ----------
-    b_covariate : float
-        Coefficient for baseline covariate.
-    b_group : float
-        Treatment effect (group difference).
-    n_total : int
-        Total sample size.
-    p_alloc : float
-        Probability of treatment allocation (0 to 1).
-    rng : np.random.Generator
-        Random number generator for reproducibility.
+    Model: ``outcome = b_group * group + b_covariate * covariate + N(0, 1)``.
 
     Returns
     -------
-    dict with outcome, covariate, group arrays (each shape (N,))
+    dict with ``outcome``, ``covariate``, ``group`` arrays of shape (N,).
     """
-    b_cov = float(np.asarray(b_covariate).reshape(-1)[0])
-    b_grp = float(np.asarray(b_group).reshape(-1)[0])
-    sigma = 1.0  # Fixed
-    n_total = int(np.asarray(n_total).reshape(-1)[0])
-    p = float(np.clip(p_alloc, 0.01, 0.99))
+    b_cov = float(np.asarray(b_covariate).flat[0])
+    b_grp = float(np.asarray(b_group).flat[0])
+    n_total = int(np.asarray(n_total).flat[0])
 
-    # Ensure both groups represented
-    max_tries = 1000
-    for _ in range(max_tries):
-        group = rng.choice([0, 1], size=n_total, p=[1 - p, p])
-        if np.sum(group == 0) > 0 and np.sum(group == 1) > 0:
-            break
-    else:
-        # Fallback: force at least 1 in each group
-        n_treat = max(1, int(n_total * p))
-        n_ctrl = n_total - n_treat
-        group = np.concatenate([np.zeros(n_ctrl), np.ones(n_treat)])
-        rng.shuffle(group)
-
-    covariate = rng.normal(0, 1, size=n_total)
-    y_mean = b_cov * covariate + b_grp * group
-    outcome = rng.normal(y_mean, sigma, size=n_total)
-
+    group = allocate(n_total, float(p_alloc), rng)
+    covariate = rng.standard_normal(n_total)
+    outcome = b_grp * group + b_cov * covariate + rng.standard_normal(n_total)
     return dict(outcome=outcome, covariate=covariate, group=group)
+
+
+def sample_n(config: ANCOVAConfig, rng: np.random.Generator) -> int:
+    """Draw N from the tilted-log-uniform / uniform mixture (see config)."""
+    if rng.uniform() < config.n_log_share:
+        return int(
+            loguniform_int(
+                config.n_min, config.n_max, alpha=config.n_log_alpha, rng=rng
+            )
+        )
+    return int(rng.integers(config.n_min, config.n_max + 1))
 
 
 def meta(config: ANCOVAConfig, rng: np.random.Generator) -> dict:
     """
-    Sample meta parameters (context) including prior hyperparameters.
-
-    Parameters
-    ----------
-    config : ANCOVAConfig
-        Configuration with sampling ranges.
-    rng : np.random.Generator
-        Random number generator for reproducibility.
+    Sample design conditions and prior hyperparameters (one per batch).
 
     Returns
     -------
-    dict with N, p_alloc, prior_df, prior_scale
+    dict with ``N``, ``p_alloc``, ``prior_df``, ``prior_scale``.
     """
-    n_total = loguniform_int(config.n_min, config.n_max, rng=rng)
-    p_alloc = rng.uniform(config.p_alloc_min, config.p_alloc_max)
-
-    # prior_df: log-uniform shifted to allow 0 (Normal)
-    prior_df = int(
-        round(
-            loguniform_int(
-                1, config.prior_df_max + 1, alpha=config.prior_df_alpha, rng=rng
-            )
-            - 1
-        )
-    )
-
-    prior_scale = rng.gamma(
-        shape=config.prior_scale_gamma_shape,
-        scale=config.prior_scale_gamma_scale,
-    )
-
     return dict(
-        N=n_total,
-        p_alloc=p_alloc,
-        prior_df=prior_df,
-        prior_scale=prior_scale,
+        N=sample_n(config, rng),
+        p_alloc=rng.uniform(config.p_alloc_min, config.p_alloc_max),
+        prior_df=1.0
+        + rng.lognormal(np.log(config.prior_df_median_shifted), config.prior_df_sdlog),
+        prior_scale=rng.lognormal(
+            np.log(config.prior_scale_median), config.prior_scale_sdlog
+        ),
     )
-
-
-def simulate_cond_batch(
-    n_sims: int,
-    n_total: int,
-    p_alloc: float,
-    b_covariate: float,
-    b_group: float,
-    prior_df: float,
-    prior_scale: float,
-    rng: np.random.Generator = None,
-) -> dict:
-    """
-    Vectorized batch simulation for a single condition.
-
-    Parameters
-    ----------
-    n_sims : int
-        Number of simulations to run.
-    n_total : int
-        Sample size per simulation.
-    p_alloc : float
-        Treatment allocation probability.
-    b_covariate : float
-        Coefficient for baseline covariate.
-    b_group : float
-        Treatment effect (true value).
-    prior_df : float
-        Degrees of freedom for prior (context for inference).
-    prior_scale : float
-        Scale for prior (context for inference).
-    rng : np.random.Generator, optional
-        Random number generator. If None, uses default.
-
-    Returns
-    -------
-    dict with outcome, covariate, group matrices (n_sims x n_total) and metadata
-    """
-    if rng is None:
-        rng = np.random.default_rng()
-
-    n_sims = int(n_sims)
-    n_total = int(n_total)
-    p = float(np.clip(p_alloc, 0.01, 0.99))
-    b_cov = float(b_covariate)
-    b_grp = float(b_group)
-
-    group = (rng.random((n_sims, n_total)) < p).astype(np.float64)
-    covariate = rng.standard_normal((n_sims, n_total))
-    noise = rng.standard_normal((n_sims, n_total))
-    outcome = b_cov * covariate + b_grp * group + noise
-
-    return {
-        "outcome": outcome,
-        "covariate": covariate,
-        "group": group,
-        "N": n_total,
-        "p_alloc": p_alloc,
-        "prior_df": prior_df,
-        "prior_scale": prior_scale,
-    }
 
 
 # ---------------------------------------------------------------------------
@@ -232,19 +182,8 @@ def create_prior_fn(config: ANCOVAConfig, rng: np.random.Generator) -> Callable:
 def create_likelihood_fn(rng: np.random.Generator) -> Callable:
     """Create likelihood function with injected rng."""
 
-    def _likelihood(
-        b_covariate,
-        b_group,
-        p_alloc,
-        n_total=None,
-        **kwargs,
-    ):
-        # BayesFlow condition grids commonly provide sample size as `N`.
-        if n_total is None:
-            n_total = kwargs.get("N")
-            if n_total is None:
-                raise TypeError("Expected either `n_total` or `N` in likelihood inputs")
-        return likelihood(b_covariate, b_group, n_total, p_alloc, rng)
+    def _likelihood(b_covariate, b_group, p_alloc, N):  # noqa: N803 (simulator key)
+        return likelihood(b_covariate, b_group, N, p_alloc, rng)
 
     return _likelihood
 
@@ -258,11 +197,83 @@ def create_meta_fn(config: ANCOVAConfig, rng: np.random.Generator) -> Callable:
     return _meta
 
 
+def simulate_batch(
+    config: ANCOVAConfig,
+    rng: np.random.Generator,
+    n_sims: int,
+    condition: dict | None = None,
+) -> dict:
+    """
+    Vectorized batch simulation: one ``condition`` (default: a :func:`meta`
+    draw) shared by ``n_sims`` datasets, parameters drawn per dataset.
+
+    Same distribution as looping :func:`prior` and :func:`likelihood`, in
+    one numpy pass (the per-dataset Python loop dominated simulation time).
+
+    Returns
+    -------
+    dict with ``b_group``/``b_covariate`` ``(n_sims, 1)``, data
+    ``(n_sims, N)`` and the condition's scalar values.
+    """
+    cond = dict(condition) if condition is not None else meta(config, rng)
+    n_total = int(cond["N"])
+    b_group = sample_truncated_t(
+        float(cond["prior_df"]),
+        float(cond["prior_scale"]),
+        config.d_bound,
+        rng,
+        size=n_sims,
+    )
+    r2 = rng.beta(config.r2_beta_a, config.r2_beta_b, size=n_sims)
+    sign = rng.choice([-1.0, 1.0], size=n_sims)
+    b_covariate = sign * np.sqrt(r2 / (1.0 - r2))
+
+    n_treat = int(np.clip(round(n_total * float(cond["p_alloc"])), 1, n_total - 1))
+    perm = np.argsort(rng.random((n_sims, n_total)), axis=1)
+    group = np.zeros((n_sims, n_total))
+    np.put_along_axis(group, perm[:, :n_treat], 1.0, axis=1)
+    covariate = rng.standard_normal((n_sims, n_total))
+    outcome = (
+        b_group[:, None] * group
+        + b_covariate[:, None] * covariate
+        + rng.standard_normal((n_sims, n_total))
+    )
+    return dict(
+        b_group=b_group[:, None],
+        b_covariate=b_covariate[:, None],
+        outcome=outcome,
+        covariate=covariate,
+        group=group,
+        **cond,
+    )
+
+
+class ANCOVASimulator(bf.simulators.Simulator):
+    """Batch-vectorized ANCOVA simulator (see :func:`simulate_batch`)."""
+
+    def __init__(self, config: ANCOVAConfig, rng: np.random.Generator):
+        self.config = config
+        self.rng = rng
+
+    def sample(self, batch_shape, **kwargs) -> dict:
+        if kwargs:
+            raise TypeError(
+                f"ANCOVASimulator.sample does not support {sorted(kwargs)}; "
+                "use validation.simulate_condition for fixed conditions"
+            )
+        n_sims = int(np.prod(batch_shape))
+        return simulate_batch(self.config, self.rng, n_sims)
+
+
 def create_simulator(
-    config: ANCOVAConfig, rng: np.random.Generator = None
+    config: ANCOVAConfig, rng: np.random.Generator | None = None
 ) -> bf.simulators.Simulator:
     """
-    Create BayesFlow simulator for ANCOVA model.
+    Create the BayesFlow simulator for the ANCOVA model.
+
+    Meta conditions (N, p_alloc, prior hyperparameters) are drawn once per
+    batch, so all datasets in a batch share the same N. Simulation is
+    vectorized over the batch (:class:`ANCOVASimulator`).
 
     Parameters
     ----------
@@ -273,13 +284,9 @@ def create_simulator(
 
     Returns
     -------
-    bf.simulators.Simulator configured for ANCOVA 2-arms
+    bf.simulators.Simulator
     """
     if rng is None:
         rng = np.random.default_rng()
 
-    prior_fn = create_prior_fn(config, rng)
-    likelihood_fn = create_likelihood_fn(rng)
-    meta_fn = create_meta_fn(config, rng)
-
-    return bf.simulators.make_simulator([prior_fn, likelihood_fn], meta_fn=meta_fn)
+    return ANCOVASimulator(config, rng)

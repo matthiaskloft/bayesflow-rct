@@ -29,7 +29,7 @@ dependencies = [
     "matplotlib",
     "tqdm",
     "bayesflow>=2.0",
-    "bayesflow-hpo @ git+https://github.com/matthiaskloft/bayesflow-hpo.git",
+    "bayesflow-hpo>=0.6.0,<0.7",
     "keras>=3.9,<3.13",  # Pin to <3.13 for BayesFlow 2.0.7 compatibility (bug in 3.13+)
     "optuna>=3.0",
 ]
@@ -58,6 +58,7 @@ where = ["src"]
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 pythonpath = ["src"]
+markers = ["slow: end-to-end training tests (deselect with -m \"not slow\")"]
 
 [tool.ruff]
 line-length = 88
@@ -68,7 +69,6 @@ select = ["E", "F", "I", "N", "W", "UP"]
 
 [tool.ruff.lint.per-file-ignores]
 "src/bayesflow_rct/**/*.py" = ["N999"]
-"src/bayesflow_rct/core/infrastructure.py" = ["E501"]
 "src/bayesflow_rct/plotting/diagnostics.py" = ["E501"]
 
 [tool.mypy]
@@ -82,7 +82,6 @@ module = [
     "bayesflow_rct.plotting.*",
     "bayesflow_rct.core.threshold",
     "bayesflow_rct.core.utils",
-    "bayesflow_rct.core.infrastructure",
     "bayesflow_rct.models.ancova.*",
     "bayesflow_rct.core.dashboard",
 ]
